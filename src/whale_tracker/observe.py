@@ -26,17 +26,33 @@ from whale_tracker.storage import Storage
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "whale_tracker.db"
 DEFAULT_CLASSIFY_LIMIT = 5
 
+# Section 6: "Başlangıçta BTC ve ETH (likit, manipülasyonu daha zor)."
+# Only market/technical data and signal generation are per-symbol -- the
+# onchain stablecoin-flow scan and news feed stay shared (see signal.py's
+# own docstring on this simplification).
+TRACKED_SYMBOLS = ("BTCUSDT", "ETHUSDT")
+
 
 def run_once(
     db_path: Path = DEFAULT_DB_PATH, *, min_usd: float = 1_000_000.0, classify_limit: int = DEFAULT_CLASSIFY_LIMIT,
 ) -> str:
     with Storage(db_path) as db:
-        try:
-            market = fetch_market_snapshot("BTCUSDT")
-            db.insert_market_snapshot(market)
-        except BinanceMarketDataError as error:
-            print(f"[uyarı] Binance verisi alınamadı: {error}", file=sys.stderr)
-            market = db.latest_market_snapshot("BTCUSDT")
+        markets: dict[str, dict | None] = {}
+        technicals: dict[str, dict | None] = {}
+        for symbol in TRACKED_SYMBOLS:
+            try:
+                markets[symbol] = fetch_market_snapshot(symbol)
+                db.insert_market_snapshot(markets[symbol])
+            except BinanceMarketDataError as error:
+                print(f"[uyarı] {symbol} Binance verisi alınamadı: {error}", file=sys.stderr)
+                markets[symbol] = db.latest_market_snapshot(symbol)
+
+            try:
+                technicals[symbol] = fetch_technical_snapshot(symbol)
+                db.insert_technical_snapshot(technicals[symbol])
+            except TechnicalDataError as error:
+                print(f"[uyarı] {symbol} teknik verisi alınamadı: {error}", file=sys.stderr)
+                technicals[symbol] = db.latest_technical_snapshot(symbol)
 
         try:
             sentiment = fetch_fear_greed()
@@ -57,12 +73,6 @@ def run_once(
             print(f"[uyarı] Haber akışı alınamadı: {error}", file=sys.stderr)
             new_headlines = []
 
-        try:
-            technical = fetch_technical_snapshot("BTCUSDT")
-            db.insert_technical_snapshot(technical)
-        except TechnicalDataError as error:
-            print(f"[uyarı] Teknik veri alınamadı: {error}", file=sys.stderr)
-
         # Kademe 1: classify only the largest few events (cost/latency
         # bounded -- see sources/classify.py). A classification failure for
         # any one event is skipped, never fails the run.
@@ -75,61 +85,69 @@ def run_once(
 
         # Aşama 2, Sinyal üretici: corroborate the accumulated signals
         # (onchain flow, funding, sentiment, news, technical) into scored
-        # candidates. Still no trading -- see signal.py's own docstring.
-        candidates = generate_candidates(db)
-        for candidate in candidates:
-            candidate_id = db.insert_signal_candidate(candidate)
+        # candidates per tracked symbol. Still no trading -- see
+        # signal.py's own docstring.
+        all_candidates: list[dict] = []
+        for symbol in TRACKED_SYMBOLS:
+            candidates = generate_candidates(db, symbol=symbol)
+            all_candidates.extend(candidates)
+            for candidate in candidates:
+                candidate_id = db.insert_signal_candidate(candidate)
 
-            # Kademe 2: a candidate is exactly the "important situation"
-            # PROJECT-PLAN.md means -- deep-analyze it, bounded to only
-            # this rare case (see sources/analysis.py's cost note). A
-            # failure here is skipped, same non-fatal contract as Kademe 1.
-            try:
-                deep_context = {
-                    "market_snapshot": market,
-                    "technical_snapshot": db.latest_technical_snapshot("BTCUSDT"),
-                    "recent_headlines": new_headlines or db.recent_headlines(limit=5),
-                }
-                analysis = generate_deep_analysis(candidate, deep_context)
-                db.insert_deep_analysis(candidate_id, analysis, datetime.now(UTC).isoformat())
-                candidate["deep_analysis"] = analysis
+                # Kademe 2: a candidate is exactly the "important situation"
+                # PROJECT-PLAN.md means -- deep-analyze it, bounded to only
+                # this rare case (see sources/analysis.py's cost note). A
+                # failure here is skipped, same non-fatal contract as Kademe 1.
+                try:
+                    deep_context = {
+                        "market_snapshot": markets[symbol],
+                        "technical_snapshot": technicals[symbol],
+                        "recent_headlines": new_headlines or db.recent_headlines(limit=5),
+                    }
+                    analysis = generate_deep_analysis(candidate, deep_context)
+                    db.insert_deep_analysis(candidate_id, analysis, datetime.now(UTC).isoformat())
+                    candidate["deep_analysis"] = analysis
 
-                # Kademe 3: only escalate to the rarest, most expensive tier
-                # when Kademe 2 itself already called this "strong" -- see
-                # sources/proposal.py's own docstring for the full gate
-                # (direction + stop-loss availability are checked there too).
-                if analysis["corroboration_strength"] == "strong":
-                    try:
-                        proposal = generate_final_proposal(candidate, analysis, deep_context)
-                        db.insert_final_proposal(candidate_id, proposal, datetime.now(UTC).isoformat())
-                        candidate["final_proposal"] = proposal
+                    # Kademe 3: only escalate to the rarest, most expensive
+                    # tier when Kademe 2 itself already called this "strong"
+                    # -- see sources/proposal.py's own docstring for the
+                    # full gate (direction + stop-loss availability checked
+                    # there too).
+                    if analysis["corroboration_strength"] == "strong":
+                        try:
+                            proposal = generate_final_proposal(candidate, analysis, deep_context)
+                            db.insert_final_proposal(candidate_id, proposal, datetime.now(UTC).isoformat())
+                            candidate["final_proposal"] = proposal
 
-                        # Aşama 3, Paper trading: a real proposal gets a
-                        # simulated position, tracked against real prices
-                        # from here on. No exchange client, no real money
-                        # -- see paper_trading.py's own docstring.
-                        if market:
-                            position = open_position(
-                                candidate_id, proposal, market["mark_price"], deep_context["technical_snapshot"],
-                            )
-                            if position:
-                                db.insert_paper_position(position)
-                                candidate["paper_position"] = position
-                    except ProposalError as error:
-                        print(f"[uyarı] Kademe 3 öneri başarısız: {error}", file=sys.stderr)
-            except AnalysisError as error:
-                print(f"[uyarı] Kademe 2 analiz başarısız: {error}", file=sys.stderr)
+                            # Aşama 3, Paper trading: a real proposal gets a
+                            # simulated position, tracked against real prices
+                            # from here on. No exchange client, no real
+                            # money -- see paper_trading.py's own docstring.
+                            if markets[symbol]:
+                                position = open_position(
+                                    candidate_id, proposal, markets[symbol]["mark_price"],
+                                    deep_context["technical_snapshot"], symbol=symbol,
+                                )
+                                if position:
+                                    db.insert_paper_position(position)
+                                    candidate["paper_position"] = position
+                        except ProposalError as error:
+                            print(f"[uyarı] Kademe 3 öneri başarısız: {error}", file=sys.stderr)
+                except AnalysisError as error:
+                    print(f"[uyarı] Kademe 2 analiz başarısız: {error}", file=sys.stderr)
 
         # Every cycle, regardless of whether a new candidate showed up:
-        # check already-open paper positions against the current price.
-        closed_positions = check_and_close_positions(db, market["mark_price"]) if market else []
+        # check already-open paper positions (any tracked symbol) against
+        # this cycle's current prices.
+        current_prices = {symbol: m["mark_price"] for symbol, m in markets.items() if m}
+        closed_positions = check_and_close_positions(db, current_prices) if current_prices else []
 
         return render_report(
             onchain_events=onchain_events,
-            market_snapshot=market,
+            market_snapshots=markets,
             sentiment_snapshot=sentiment,
             headlines=new_headlines,
-            signal_candidates=candidates,
+            signal_candidates=all_candidates,
             closed_positions=closed_positions,
         )
 

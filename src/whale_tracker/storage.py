@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS sentiment_snapshots (
 
 CREATE TABLE IF NOT EXISTS signal_candidates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL DEFAULT 'BTCUSDT',
     direction TEXT NOT NULL,
     confidence REAL NOT NULL,
     components_json TEXT NOT NULL,
@@ -123,6 +124,7 @@ CREATE TABLE IF NOT EXISTS final_proposals (
 CREATE TABLE IF NOT EXISTS paper_positions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     signal_candidate_id INTEGER NOT NULL REFERENCES signal_candidates(id),
+    symbol TEXT NOT NULL DEFAULT 'BTCUSDT',
     entry_price REAL NOT NULL,
     stop_loss_price REAL NOT NULL,
     take_profit_price REAL NOT NULL,
@@ -148,6 +150,22 @@ class Storage:
         self._conn = sqlite3.connect(self.path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
+        self._conn.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Additive, idempotent column migrations for DB files created
+        before a column existed -- CREATE TABLE IF NOT EXISTS in SCHEMA
+        only applies to brand-new tables, not columns added to an
+        existing one (e.g. `symbol`, added when ETH support came in
+        alongside the original BTC-only tables)."""
+        for table, column, ddl in (
+            ("signal_candidates", "symbol", "ALTER TABLE signal_candidates ADD COLUMN symbol TEXT NOT NULL DEFAULT 'BTCUSDT'"),
+            ("paper_positions", "symbol", "ALTER TABLE paper_positions ADD COLUMN symbol TEXT NOT NULL DEFAULT 'BTCUSDT'"),
+        ):
+            existing_columns = {row["name"] for row in self._conn.execute(f"PRAGMA table_info({table})")}
+            if column not in existing_columns:
+                self._conn.execute(ddl)
         self._conn.commit()
 
     def close(self) -> None:
@@ -254,11 +272,11 @@ class Storage:
     def insert_signal_candidate(self, candidate: dict[str, Any]) -> int:
         cursor = self._conn.execute(
             """
-            INSERT INTO signal_candidates (direction, confidence, components_json, rationale_json, generated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO signal_candidates (symbol, direction, confidence, components_json, rationale_json, generated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
-                candidate["direction"], candidate["confidence"],
+                candidate.get("symbol", "BTCUSDT"), candidate["direction"], candidate["confidence"],
                 json.dumps(candidate["components"], ensure_ascii=False),
                 json.dumps(candidate["rationale"], ensure_ascii=False),
                 candidate["generated_at"],
@@ -301,15 +319,17 @@ class Storage:
         self._conn.commit()
 
     def insert_paper_position(self, position: dict[str, Any]) -> int:
+        payload = dict(position)
+        payload.setdefault("symbol", "BTCUSDT")
         cursor = self._conn.execute(
             """
             INSERT INTO paper_positions
-                (signal_candidate_id, entry_price, stop_loss_price, take_profit_price,
+                (signal_candidate_id, symbol, entry_price, stop_loss_price, take_profit_price,
                  position_size_usd, status, opened_at)
-            VALUES (:signal_candidate_id, :entry_price, :stop_loss_price, :take_profit_price,
+            VALUES (:signal_candidate_id, :symbol, :entry_price, :stop_loss_price, :take_profit_price,
                     :position_size_usd, :status, :opened_at)
             """,
-            position,
+            payload,
         )
         self._conn.commit()
         return int(cursor.lastrowid)
@@ -383,6 +403,22 @@ class Storage:
             "SELECT * FROM market_snapshots WHERE symbol = ? ORDER BY observed_at DESC LIMIT 1",
             (symbol,),
         ).fetchone()
+        return dict(row) if row else None
+
+    def market_snapshot_near(self, symbol: str, timestamp: str) -> dict[str, Any] | None:
+        """The snapshot at-or-before `timestamp`, falling back to the
+        earliest available snapshot if none exists that early -- used for
+        "what was the price around period start" (evaluation.py's
+        BTC-hold comparison), where the exact observe.py cycle boundary
+        rarely lines up with a position's own opened_at."""
+        row = self._conn.execute(
+            "SELECT * FROM market_snapshots WHERE symbol = ? AND observed_at <= ? ORDER BY observed_at DESC LIMIT 1",
+            (symbol, timestamp),
+        ).fetchone()
+        if row is None:
+            row = self._conn.execute(
+                "SELECT * FROM market_snapshots WHERE symbol = ? ORDER BY observed_at ASC LIMIT 1", (symbol,)
+            ).fetchone()
         return dict(row) if row else None
 
     def latest_sentiment_snapshot(self, source: str) -> dict[str, Any] | None:

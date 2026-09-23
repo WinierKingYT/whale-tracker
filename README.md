@@ -68,7 +68,17 @@ maksimum düşüş (drawdown, tepe-dip takibiyle), ve aynı dönemde BTC-hold
 karşılaştırması (`python -m whale_tracker.evaluation`). 10 kapanmış
 pozisyonun altında sonuçlar yine gösteriliyor ama "düşük güvenilirlik"
 uyarısıyla. `PROJECT-PLAN.md`'nin kendi kriteri işletiliyor: BTC-hold
-strateji getirisini geçiyorsa "EVET/HAYIR" doğrudan raporda.
+strateji getirisini geçiyorsa "EVET/HAYIR" doğrudan raporda (karşılaştırma
+her zaman BTCUSDT piyasa geçmişine bakıyor, hangi sembollerde işlem
+açıldığından bağımsız — plan metninin kendi kriteri budur).
+
+**ETH desteği eklendi.** Section 6 "Başlangıçta BTC ve ETH" diyordu ama
+sistem başta yalnızca BTCUSDT izliyordu — artık piyasa/teknik veri, sinyal
+üretimi, Kademe 1-3, kağıt pozisyon ve değerlendirme hepsi BTCUSDT +
+ETHUSDT için ayrı ayrı çalışıyor (zincir üstü tarama ve haberler paylaşımlı
+kalıyor, asset-özel değiller — bilinçli bir basitleştirme). Gerçek canlı
+veriyle uçtan uca doğrulandı, mevcut veritabanı sorunsuz göç etti (yeni
+`symbol` sütunu, eski kayıtlar BTCUSDT'ye varsayılan).
 
 **Sıradaki:** İlk kağıt pozisyonların açılıp kapanmasını bekleme (Kademe 3
 "strong" eşiğine ulaşan aday nadir, henüz gerçek pozisyon açılmadı);

@@ -40,12 +40,26 @@ def test_report_handles_empty_and_missing_sections():
 
 def test_report_shows_signal_candidates_with_rationale():
     candidate = {
-        "direction": "accumulation", "confidence": 0.62,
+        "symbol": "BTCUSDT", "direction": "accumulation", "confidence": 0.62,
         "rationale": ["24s net borsa akışı: çıkış $15,000,000", "funding nötr (0.0050%)"],
     }
     report = render_report(
         onchain_events=[], market_snapshot=None, sentiment_snapshot=None,
         signal_candidates=[candidate],
     )
-    assert "[accumulation] güven=0.62" in report
+    assert "[BTCUSDT/accumulation] güven=0.62" in report
     assert "24s net borsa akışı: çıkış $15,000,000" in report
+
+
+def test_report_shows_multiple_symbols_in_market_section():
+    report = render_report(
+        onchain_events=[], sentiment_snapshot=None,
+        market_snapshots={
+            "BTCUSDT": {"mark_price": 70000.0, "funding_rate": 0.0001, "open_interest": 1000.0},
+            "ETHUSDT": {"mark_price": 3000.0, "funding_rate": 0.0002, "open_interest": 500.0},
+        },
+    )
+    assert "BTCUSDT:" in report
+    assert "ETHUSDT:" in report
+    assert "$70,000.00" in report
+    assert "$3,000.00" in report

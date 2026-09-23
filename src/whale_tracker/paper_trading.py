@@ -42,6 +42,7 @@ MAX_HOLD_DAYS = 7
 
 def open_position(
     candidate_id: int, proposal: dict[str, Any], market_price: float, technical: dict[str, Any] | None,
+    *, symbol: str = "BTCUSDT",
 ) -> dict[str, Any] | None:
     """Open a paper position from a Kademe 3 long_candidate proposal.
     Returns None (does not open) when the risk/reward setup doesn't make
@@ -59,6 +60,7 @@ def open_position(
 
     return {
         "signal_candidate_id": candidate_id,
+        "symbol": symbol,
         "entry_price": market_price,
         "stop_loss_price": stop_loss_price,
         "take_profit_price": take_profit_price,
@@ -73,13 +75,19 @@ def _pnl(entry_price: float, exit_price: float, position_size_usd: float) -> tup
     return round(position_size_usd * pnl_pct, 2), round(pnl_pct, 4)
 
 
-def check_and_close_positions(storage: Any, current_price: float) -> list[dict[str, Any]]:
-    """Check every open paper position against the current market price;
-    close and record any that hit stop-loss, take-profit, or MAX_HOLD_DAYS.
-    Returns the list of positions closed this call (empty most cycles)."""
+def check_and_close_positions(storage: Any, current_prices: dict[str, float]) -> list[dict[str, Any]]:
+    """Check every open paper position against `current_prices` (mapping
+    symbol -> current price); close and record any that hit stop-loss,
+    take-profit, or MAX_HOLD_DAYS. Returns the list of positions closed
+    this call (empty most cycles). A position whose symbol has no price
+    this cycle (e.g. that source failed -- see observe.py) is left open
+    and simply skipped, not treated as an error."""
     now = datetime.now(UTC)
     closed: list[dict[str, Any]] = []
     for position in storage.open_paper_positions():
+        current_price = current_prices.get(position.get("symbol", "BTCUSDT"))
+        if current_price is None:
+            continue
         opened_at = datetime.fromisoformat(position["opened_at"])
         if current_price <= position["stop_loss_price"]:
             exit_price, status = position["stop_loss_price"], "stopped_out"

@@ -15,12 +15,14 @@ get mistaken for more rigor than they have:
 - strategy_return_pct is simple sum-of-pnl / starting capital, not
   compounded -- fine while positions are small (~1% of capital) and
   rarely overlap, would need revisiting at higher position counts/overlap.
-- The BTC-hold comparison uses the first position's own entry_price and
-  the last closed position's own exit_price as the period's start/end BTC
-  price -- real prices actually observed, not a separate lookup, but only
-  as good as "first position opened" to "last position closed" being a
-  fair window (a first-pass proxy for "same period", not a fixed-calendar
-  window)."""
+- The BTC-hold comparison uses market_snapshots for BTCUSDT specifically
+  (storage.market_snapshot_near, storage.latest_market_snapshot) as the
+  period's start/end price -- section 9's own wording is "sadece BTC
+  tutmaktan daha iyi mi," always BTC regardless of which symbols the
+  strategy actually traded (ETH support added candidates/positions can be
+  ETHUSDT now, see signal.py/paper_trading.py). "Same period" here means
+  "first position opened to last position closed," a first-pass proxy for
+  a fixed-calendar window, not the window itself."""
 
 from __future__ import annotations
 
@@ -78,9 +80,27 @@ def evaluate_paper_trading(storage: Any) -> dict[str, Any]:
     strategy_return_pct = total_pnl_usd / VIRTUAL_CAPITAL_USD
 
     first_position = min(positions, key=lambda p: p["opened_at"])
-    btc_start_price = first_position["entry_price"]
-    btc_end_price = closed[-1]["exit_price"]
-    btc_hold_return_pct = (btc_end_price - btc_start_price) / btc_start_price
+    btc_start = storage.market_snapshot_near("BTCUSDT", first_position["opened_at"])
+    btc_end = storage.latest_market_snapshot("BTCUSDT")
+    if btc_start and btc_end and btc_start["mark_price"]:
+        btc_hold_return_pct = round((btc_end["mark_price"] - btc_start["mark_price"]) / btc_start["mark_price"], 4)
+        beats_btc_hold = strategy_return_pct > btc_hold_return_pct
+    else:
+        # No BTCUSDT market history covering this window -- can't score
+        # against section 9's own criterion, report None rather than a
+        # fabricated comparison.
+        btc_hold_return_pct = None
+        beats_btc_hold = None
+
+    by_symbol: dict[str, dict[str, Any]] = {}
+    for symbol in sorted({p.get("symbol", "BTCUSDT") for p in closed}):
+        symbol_closed = [p for p in closed if p.get("symbol", "BTCUSDT") == symbol]
+        symbol_wins = [p for p in symbol_closed if p["pnl_usd"] > 0]
+        by_symbol[symbol] = {
+            "closed_position_count": len(symbol_closed),
+            "win_rate": round(len(symbol_wins) / len(symbol_closed), 4),
+            "total_pnl_usd": round(sum(p["pnl_usd"] for p in symbol_closed), 2),
+        }
 
     return {
         "closed_position_count": len(closed),
@@ -93,8 +113,9 @@ def evaluate_paper_trading(storage: Any) -> dict[str, Any]:
         "total_pnl_usd": total_pnl_usd,
         "strategy_return_pct": round(strategy_return_pct, 4),
         "max_drawdown_pct": round(max_drawdown_pct, 4),
-        "btc_hold_return_pct": round(btc_hold_return_pct, 4),
-        "beats_btc_hold": strategy_return_pct > btc_hold_return_pct,
+        "btc_hold_return_pct": btc_hold_return_pct,
+        "beats_btc_hold": beats_btc_hold,
+        "by_symbol": by_symbol,
     }
 
 
@@ -122,11 +143,24 @@ def render_evaluation_report(scorecard: dict[str, Any]) -> str:
     lines.append(f"Toplam P&L: ${scorecard['total_pnl_usd']:,.2f} (${VIRTUAL_CAPITAL_USD:,.0f} sanal sermaye üzerinden)")
     lines.append(f"Strateji getirisi: {scorecard['strategy_return_pct']:+.2%}")
     lines.append(f"Maksimum düşüş (drawdown): {scorecard['max_drawdown_pct']:.2%}")
-    lines.append(f"Aynı dönemde BTC-hold getirisi: {scorecard['btc_hold_return_pct']:+.2%}")
-    verdict = "EVET" if scorecard["beats_btc_hold"] else "HAYIR"
-    lines.append(f"BTC-hold'u geçiyor mu: {verdict}")
-    if not scorecard["beats_btc_hold"]:
-        lines.append("  -> PROJECT-PLAN.md section 9: 'sadece BTC tutmak' yeniyorsa gerçek parayı artırmayız.")
+    if scorecard["btc_hold_return_pct"] is None:
+        lines.append("Aynı dönemde BTC-hold getirisi: (BTCUSDT piyasa geçmişi yok, karşılaştırılamıyor)")
+    else:
+        lines.append(f"Aynı dönemde BTC-hold getirisi: {scorecard['btc_hold_return_pct']:+.2%}")
+        verdict = "EVET" if scorecard["beats_btc_hold"] else "HAYIR"
+        lines.append(f"BTC-hold'u geçiyor mu: {verdict}")
+        if not scorecard["beats_btc_hold"]:
+            lines.append("  -> PROJECT-PLAN.md section 9: 'sadece BTC tutmak' yeniyorsa gerçek parayı artırmayız.")
+
+    by_symbol = scorecard.get("by_symbol") or {}
+    if len(by_symbol) > 1:
+        lines.append("")
+        lines.append("Sembol bazında:")
+        for symbol, stats in by_symbol.items():
+            lines.append(
+                f"  {symbol}: {stats['closed_position_count']} pozisyon, "
+                f"isabet={stats['win_rate']:.1%}, P&L=${stats['total_pnl_usd']:,.2f}"
+            )
     return "\n".join(lines)
 
 

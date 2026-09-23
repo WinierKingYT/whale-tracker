@@ -45,12 +45,19 @@ def _format_event(event: dict[str, Any]) -> str:
 def render_report(
     *,
     onchain_events: list[dict[str, Any]],
-    market_snapshot: dict[str, Any] | None,
-    sentiment_snapshot: dict[str, Any] | None,
+    market_snapshot: dict[str, Any] | None = None,
+    market_snapshots: dict[str, dict[str, Any] | None] | None = None,
+    sentiment_snapshot: dict[str, Any] | None = None,
     headlines: list[dict[str, Any]] | None = None,
     signal_candidates: list[dict[str, Any]] | None = None,
     closed_positions: list[dict[str, Any]] | None = None,
 ) -> str:
+    # `market_snapshot` (singular) stays as a BTCUSDT-only convenience for
+    # single-symbol callers/tests; `market_snapshots` (plural, symbol ->
+    # snapshot) is what observe.py passes now that ETH is also tracked.
+    if market_snapshots is None:
+        market_snapshots = {"BTCUSDT": market_snapshot} if market_snapshot is not None else {}
+
     lines = ["=== whale-tracker gözlemci raporu ===", ""]
 
     signal_candidates = signal_candidates or []
@@ -58,7 +65,8 @@ def render_report(
         lines.append("Sinyal adayları (henüz işlem değil, öneri + gerekçe):")
         for candidate in signal_candidates:
             cap_note = "" if candidate.get("technical_available", True) else " (teknik sinyal eksik, tavanlı)"
-            lines.append(f"  [{candidate['direction']}] güven={candidate['confidence']:.2f}{cap_note}")
+            symbol = candidate.get("symbol", "BTCUSDT")
+            lines.append(f"  [{symbol}/{candidate['direction']}] güven={candidate['confidence']:.2f}{cap_note}")
             for line in candidate["rationale"]:
                 lines.append(f"    - {line}")
             analysis = candidate.get("deep_analysis")
@@ -96,18 +104,25 @@ def render_report(
     if closed_positions:
         lines.append("Kapanan kağıt pozisyonlar (bu turda):")
         for position in closed_positions:
+            symbol = position.get("symbol", "BTCUSDT")
             lines.append(
-                f"  [{position['status']}] giriş=${position['entry_price']:,.0f} → "
+                f"  [{symbol}/{position['status']}] giriş=${position['entry_price']:,.0f} → "
                 f"çıkış=${position['exit_price']:,.0f}, P&L=${position['pnl_usd']:,.2f} "
                 f"({position['pnl_pct']:+.2%})"
             )
         lines.append("")
 
-    lines.append("Piyasa (BTCUSDT):")
-    if market_snapshot:
-        lines.append(f"  mark price: ${market_snapshot['mark_price']:,.2f}")
-        lines.append(f"  funding rate: {market_snapshot['funding_rate']:.5%}")
-        lines.append(f"  open interest: {market_snapshot['open_interest']:,.2f} BTC")
+    lines.append("Piyasa:")
+    if market_snapshots:
+        for symbol in sorted(market_snapshots):
+            snapshot = market_snapshots[symbol]
+            lines.append(f"  {symbol}:")
+            if snapshot:
+                lines.append(f"    mark price: ${snapshot['mark_price']:,.2f}")
+                lines.append(f"    funding rate: {snapshot['funding_rate']:.5%}")
+                lines.append(f"    open interest: {snapshot['open_interest']:,.2f}")
+            else:
+                lines.append("    (veri yok)")
     else:
         lines.append("  (veri yok)")
     lines.append("")

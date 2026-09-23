@@ -136,15 +136,23 @@ def _has_recent_negative_news(headlines: list[dict[str, Any]]) -> tuple[bool, st
     return False, None
 
 
-def generate_candidates(storage: Any, *, flow_window_hours: int = 24) -> list[dict[str, Any]]:
+def generate_candidates(storage: Any, *, symbol: str = "BTCUSDT", flow_window_hours: int = 24) -> list[dict[str, Any]]:
     """Return a list of at most one candidate per direction (accumulation/
-    distribution), each with its component scores and rationale. Returns
-    an empty list when corroboration is weak or data is missing -- this
-    is the expected, common case, not an error."""
+    distribution) for `symbol`, each with its component scores and
+    rationale. Returns an empty list when corroboration is weak or data
+    is missing -- this is the expected, common case, not an error.
+
+    The onchain stablecoin flow and news-sentiment components are not
+    symbol-specific (sources/onchain.py's wide-net scan watches all
+    tracked stablecoins regardless of which asset the money eventually
+    buys, and headlines aren't asset-tagged) -- only market/technical are
+    looked up per `symbol`. This is a real simplification: the same flow
+    reading corroborates a BTC and an ETH candidate in the same cycle,
+    which is the existing design's own scope, not new to multi-symbol."""
     flow = _aggregate_exchange_flow(storage, hours=flow_window_hours)
-    market = storage.latest_market_snapshot("BTCUSDT")
+    market = storage.latest_market_snapshot(symbol)
     sentiment = storage.latest_sentiment_snapshot("fear_greed")
-    technical = storage.latest_technical_snapshot("BTCUSDT")
+    technical = storage.latest_technical_snapshot(symbol)
     negative_news, negative_headline = _has_recent_negative_news(storage.recent_headlines(limit=30))
 
     if market is None:
@@ -210,6 +218,7 @@ def generate_candidates(storage: Any, *, flow_window_hours: int = 24) -> list[di
             # more confidence than was actually checked.
             confidence = min(confidence, _MAX_CONFIDENCE_WITHOUT_TECHNICAL)
         candidates.append({
+            "symbol": symbol,
             "direction": direction,
             "confidence": round(min(confidence, 1.0), 3),
             "components": components,

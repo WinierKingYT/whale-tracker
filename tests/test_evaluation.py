@@ -9,13 +9,15 @@ def _now(minutes_ago: float = 0) -> str:
     return (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat()
 
 
-def _open_and_close(db, *, entry_price, exit_price, status, opened_minutes_ago, closed_minutes_ago, size_usd=100.0):
+def _open_and_close(
+    db, *, entry_price, exit_price, status, opened_minutes_ago, closed_minutes_ago, size_usd=100.0, symbol="BTCUSDT",
+):
     candidate_id = db.insert_signal_candidate({
-        "direction": "accumulation", "confidence": 0.9, "components": {}, "rationale": [],
+        "symbol": symbol, "direction": "accumulation", "confidence": 0.9, "components": {}, "rationale": [],
         "generated_at": _now(opened_minutes_ago),
     })
     position_id = db.insert_paper_position({
-        "signal_candidate_id": candidate_id, "entry_price": entry_price,
+        "signal_candidate_id": candidate_id, "symbol": symbol, "entry_price": entry_price,
         "stop_loss_price": entry_price * 0.95, "take_profit_price": entry_price * 1.05,
         "position_size_usd": size_usd, "status": "open", "opened_at": _now(opened_minutes_ago),
     })
@@ -26,6 +28,13 @@ def _open_and_close(db, *, entry_price, exit_price, status, opened_minutes_ago, 
         closed_at=_now(closed_minutes_ago), pnl_usd=pnl_usd, pnl_pct=round(pnl_pct, 4),
     )
     return position_id
+
+
+def _seed_btc_price(db, price: float, minutes_ago: float) -> None:
+    db.insert_market_snapshot({
+        "symbol": "BTCUSDT", "funding_rate": 0.0001, "open_interest": 1000.0,
+        "mark_price": price, "observed_at": _now(minutes_ago),
+    })
 
 
 def test_no_closed_positions_is_insufficient_data(tmp_path):
@@ -87,16 +96,47 @@ def test_max_drawdown_tracks_worst_peak_to_trough(tmp_path):
     assert scorecard["max_drawdown_pct"] == round(200 / 10002, 4)
 
 
-def test_btc_hold_comparison_uses_first_entry_and_last_exit_price(tmp_path):
+def test_btc_hold_comparison_uses_btcusdt_market_snapshots_not_position_price(tmp_path):
     with Storage(tmp_path / "t.db") as db:
-        _open_and_close(db, entry_price=70000.0, exit_price=77000.0, status="take_profit",
+        # BTC market data moves +10% over the window -- deliberately
+        # different from the position's own entry/exit price, to prove
+        # the comparison reads market_snapshots, not the position itself.
+        _seed_btc_price(db, 70000.0, minutes_ago=100)
+        _seed_btc_price(db, 77000.0, minutes_ago=1)
+        _open_and_close(db, entry_price=70000.0, exit_price=70700.0, status="take_profit",
                          opened_minutes_ago=100, closed_minutes_ago=50)
 
         scorecard = evaluation.evaluate_paper_trading(db)
 
-    # entry 70000 -> exit 77000 is +10% for both the single trade and BTC-hold here
     assert scorecard["btc_hold_return_pct"] == 0.1
-    assert scorecard["beats_btc_hold"] is False  # strategy return < btc hold return (position was only ~1% of capital)
+    assert scorecard["beats_btc_hold"] is False  # +1% strategy return vs +10% BTC-hold
+
+
+def test_btc_hold_is_none_without_btcusdt_market_history(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        # an ETH-only position with no BTCUSDT market_snapshots recorded at all
+        _open_and_close(db, entry_price=3000.0, exit_price=3150.0, status="take_profit",
+                         opened_minutes_ago=100, closed_minutes_ago=50, symbol="ETHUSDT")
+
+        scorecard = evaluation.evaluate_paper_trading(db)
+
+    assert scorecard["btc_hold_return_pct"] is None
+    assert scorecard["beats_btc_hold"] is None
+
+
+def test_by_symbol_breakdown_separates_btc_and_eth(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        _open_and_close(db, entry_price=70000.0, exit_price=73500.0, status="take_profit",
+                         opened_minutes_ago=100, closed_minutes_ago=90, symbol="BTCUSDT")
+        _open_and_close(db, entry_price=3000.0, exit_price=2900.0, status="stopped_out",
+                         opened_minutes_ago=80, closed_minutes_ago=70, symbol="ETHUSDT")
+
+        scorecard = evaluation.evaluate_paper_trading(db)
+
+    assert scorecard["by_symbol"]["BTCUSDT"]["closed_position_count"] == 1
+    assert scorecard["by_symbol"]["BTCUSDT"]["win_rate"] == 1.0
+    assert scorecard["by_symbol"]["ETHUSDT"]["closed_position_count"] == 1
+    assert scorecard["by_symbol"]["ETHUSDT"]["win_rate"] == 0.0
 
 
 def test_below_confidence_floor_still_reports_but_flags_insufficient(tmp_path):
@@ -119,6 +159,8 @@ def test_render_report_handles_zero_closed_positions():
 
 def test_render_report_shows_full_scorecard(tmp_path):
     with Storage(tmp_path / "t.db") as db:
+        _seed_btc_price(db, 70000.0, minutes_ago=100)
+        _seed_btc_price(db, 71000.0, minutes_ago=1)
         for _ in range(evaluation.MIN_POSITIONS_FOR_CONFIDENCE):
             _open_and_close(db, entry_price=70000.0, exit_price=71000.0, status="take_profit",
                              opened_minutes_ago=10, closed_minutes_ago=5)
@@ -127,4 +169,5 @@ def test_render_report_shows_full_scorecard(tmp_path):
     report = evaluation.render_evaluation_report(scorecard)
     assert "İsabet oranı" in report
     assert "BTC-hold" in report
+    assert "EVET" in report or "HAYIR" in report
     assert "UYARI" not in report  # enough positions, no low-confidence warning
