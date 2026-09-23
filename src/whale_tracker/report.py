@@ -60,6 +60,12 @@ def render_report(
             lines.append(f"  [{candidate['direction']}] güven={candidate['confidence']:.2f}{cap_note}")
             for line in candidate["rationale"]:
                 lines.append(f"    - {line}")
+            analysis = candidate.get("deep_analysis")
+            if analysis:
+                lines.append(f"    → Kademe 2 [{analysis['corroboration_strength']}]: {analysis['assessment']}")
+                lines.append(f"      karşı senaryo: {analysis['counter_argument']}")
+                if analysis["risk_flags"]:
+                    lines.append(f"      risk: {', '.join(analysis['risk_flags'])}")
         lines.append("")
 
     lines.append("Piyasa (BTCUSDT):")

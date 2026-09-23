@@ -70,3 +70,24 @@ def test_sentiment_snapshot(tmp_path):
         snap = db.latest_sentiment_snapshot("fear_greed")
         assert snap["value"] == 72.0
         assert snap["label"] == "Greed"
+
+
+def test_signal_candidate_insert_returns_id_and_deep_analysis_links_to_it(tmp_path):
+    with Storage(tmp_path / "test.db") as db:
+        candidate_id = db.insert_signal_candidate({
+            "direction": "accumulation", "confidence": 0.8,
+            "components": {"onchain_flow": 0.4}, "rationale": ["test"],
+            "generated_at": _now(),
+        })
+        assert isinstance(candidate_id, int)
+
+        db.insert_deep_analysis(candidate_id, {
+            "assessment": "test değerlendirme", "counter_argument": "test karşı",
+            "risk_flags": ["flag1"], "corroboration_strength": "moderate",
+        }, _now())
+
+        row = db._conn.execute(
+            "SELECT * FROM deep_analyses WHERE signal_candidate_id = ?", (candidate_id,)
+        ).fetchone()
+        assert row["assessment"] == "test değerlendirme"
+        assert row["corroboration_strength"] == "moderate"

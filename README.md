@@ -26,25 +26,35 @@ kullanıyor. Bilinen borsa cüzdanları `data/known-exchange-wallets.json`'da
 ## Durum
 
 **Aşama: Gözlemci tamamlandı (1/6), Sinyal üretici tüm sinyalleriyle
-çalışıyor (2/6).** Beş kaynak uçtan uca test edildi ve zamanlanmış çalışıyor
-(Windows Task Scheduler, 15 dakikada bir, `data/observer.log`): Binance
-piyasa verisi, Binance günlük mumlar (teknik/destek-direnç), Fear&Greed,
-haberler (CoinDesk+Cointelegraph RSS), zincir üstü büyük USDT/USDC
-transferleri (bilinen cüzdan/kurum/DEX/işaretlenmiş adreslerle çapraz
-kontrollü). Kademe 1 (Hermes ile en büyük olayların ucuz sınıflandırması)
-çalışıyor. Sinyal üretici, planın kendi örneğindeki beş sinyalin hepsini
-(24s net borsa akışı + funding + Fear&Greed + haber taraması +
-teknik/destek-direnç) birbirini doğrulayan skorlu adaylara dönüştürüyor
-(`signal.py`) — hiçbir bileşen artık eksik değil. Hâlâ işlem yok, risk yok.
+çalışıyor (2/6), Kademe 2 devrede.** Beş kaynak uçtan uca test edildi ve
+zamanlanmış çalışıyor (Windows Task Scheduler, 15 dakikada bir,
+`data/observer.log`): Binance piyasa verisi, Binance günlük mumlar
+(teknik/destek-direnç), Fear&Greed, haberler (CoinDesk+Cointelegraph RSS),
+zincir üstü büyük USDT/USDC transferleri (bilinen cüzdan/kurum/DEX/
+işaretlenmiş adreslerle çapraz kontrollü). Kademe 1 (Hermes ile en büyük
+olayların ucuz sınıflandırması) çalışıyor. Sinyal üretici, planın kendi
+örneğindeki beş sinyalin hepsini (24s net borsa akışı + funding +
+Fear&Greed + haber taraması + teknik/destek-direnç) birbirini doğrulayan
+skorlu adaylara dönüştürüyor (`signal.py`) — hiçbir bileşen artık eksik
+değil; `sentiment` bileşeni de artık `funding` gibi yön-duyarlı/kontraryan
+(gerçek veride bulunan bir açık: Greed her zaman +puan veriyordu, artık
+yönle çelişiyorsa 0 veriyor). **Kademe 2** (`sources/analysis.py`), her
+sinyal adayı üretildiğinde (nadir, per-cycle değil) Claude Sonnet CLI ile
+niteliksel derin analiz üretiyor — bağlam tutarlılığı, en güçlü karşı
+senaryo, risk bayrakları; mekanik güven puanını değiştirmiyor, asla al/sat
+tavsiyesi üretmiyor. Kullanıcının kendi Claude Pro aboneliğinin paylaşımlı
+kotasını kullanıyor (~15K token/çağrı, ölçülmüş), ayrı bir API key
+gerekmiyor. Hâlâ işlem yok, risk yok.
 
 **Sıradaki:** Birkaç günlük gerçek sinyal-aday verisi biriktirip gözden
-geçirme; bilinen cüzdan listesini genişletmeye devam; Kademe 2 (Sonnet ile
-periyodik daha derin analiz) tasarımı.
+geçirme (artık Kademe 2 yorumuyla birlikte); bilinen cüzdan listesini
+genişletmeye devam; Kademe 3 (Opus/Fable, nihai öneri + karşı argüman)
+tasarımı, yalnızca karar anında.
 
 | Aşama | Durum |
 |---|---|
 | 1. Gözlemci | ✅ tamamlandı, zamanlanmış çalışıyor |
-| 2. Sinyal üretici | ✅ tüm 5 sinyal çalışıyor, gerçek veriyle doğrulanmadı henüz |
+| 2. Sinyal üretici | ✅ tüm 5 sinyal çalışıyor + Kademe 2 derin analiz, gerçek veriyle doğrulanmadı henüz |
 | 3. Paper trading | beklemede |
 | 4. Değerlendirme | beklemede |
 | 5. Yarı otomatik (onaylı) | beklemede |

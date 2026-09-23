@@ -12,6 +12,7 @@ from pathlib import Path
 
 from whale_tracker.report import render_report
 from whale_tracker.signal import generate_candidates
+from whale_tracker.sources.analysis import AnalysisError, generate_deep_analysis
 from whale_tracker.sources.binance import BinanceMarketDataError, fetch_market_snapshot
 from whale_tracker.sources.classify import classify_top_events
 from whale_tracker.sources.news import NewsFeedError, fetch_headlines
@@ -75,7 +76,22 @@ def run_once(
         # candidates. Still no trading -- see signal.py's own docstring.
         candidates = generate_candidates(db)
         for candidate in candidates:
-            db.insert_signal_candidate(candidate)
+            candidate_id = db.insert_signal_candidate(candidate)
+
+            # Kademe 2: a candidate is exactly the "important situation"
+            # PROJECT-PLAN.md means -- deep-analyze it, bounded to only
+            # this rare case (see sources/analysis.py's cost note). A
+            # failure here is skipped, same non-fatal contract as Kademe 1.
+            try:
+                analysis = generate_deep_analysis(candidate, {
+                    "market_snapshot": market,
+                    "technical_snapshot": db.latest_technical_snapshot("BTCUSDT"),
+                    "recent_headlines": new_headlines or db.recent_headlines(limit=5),
+                })
+                db.insert_deep_analysis(candidate_id, analysis, datetime.now(UTC).isoformat())
+                candidate["deep_analysis"] = analysis
+            except AnalysisError as error:
+                print(f"[uyarı] Kademe 2 analiz başarısız: {error}", file=sys.stderr)
 
         return render_report(
             onchain_events=onchain_events,

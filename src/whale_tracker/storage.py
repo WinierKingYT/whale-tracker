@@ -95,6 +95,16 @@ CREATE TABLE IF NOT EXISTS headlines (
     published_at TEXT,
     observed_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS deep_analyses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_candidate_id INTEGER NOT NULL REFERENCES signal_candidates(id),
+    assessment TEXT NOT NULL,
+    counter_argument TEXT NOT NULL,
+    risk_flags_json TEXT NOT NULL,
+    corroboration_strength TEXT NOT NULL,
+    generated_at TEXT NOT NULL
+);
 """
 
 
@@ -211,8 +221,8 @@ class Storage:
         )
         self._conn.commit()
 
-    def insert_signal_candidate(self, candidate: dict[str, Any]) -> None:
-        self._conn.execute(
+    def insert_signal_candidate(self, candidate: dict[str, Any]) -> int:
+        cursor = self._conn.execute(
             """
             INSERT INTO signal_candidates (direction, confidence, components_json, rationale_json, generated_at)
             VALUES (?, ?, ?, ?, ?)
@@ -222,6 +232,22 @@ class Storage:
                 json.dumps(candidate["components"], ensure_ascii=False),
                 json.dumps(candidate["rationale"], ensure_ascii=False),
                 candidate["generated_at"],
+            ),
+        )
+        self._conn.commit()
+        return int(cursor.lastrowid)
+
+    def insert_deep_analysis(self, signal_candidate_id: int, analysis: dict[str, Any], generated_at: str) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO deep_analyses
+                (signal_candidate_id, assessment, counter_argument, risk_flags_json, corroboration_strength, generated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                signal_candidate_id, analysis["assessment"], analysis["counter_argument"],
+                json.dumps(analysis["risk_flags"], ensure_ascii=False),
+                analysis["corroboration_strength"], generated_at,
             ),
         )
         self._conn.commit()
