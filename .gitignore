@@ -7,3 +7,4 @@ data/*.db-journal
 data/*.log
 .env
 logs/
+scripts/run-observer-hidden.vbs
