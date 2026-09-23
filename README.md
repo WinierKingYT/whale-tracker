@@ -61,18 +61,25 @@ karşı kontrol ediliyor — stop, hedef veya 7 gün (swing tarzı üst sınır)
 dolunca otomatik kapanıp P&L kaydediliyor. Hâlâ hiçbir aşamada gerçek emir
 yok, gerçek para yok — bu tamamen kod içi defter tutma.
 
+**Aşama 4, Değerlendirme** (`evaluation.py`) ölçüm altyapısı da hazır —
+henüz kapanmış pozisyon yoksa dahi çalışır, ilk pozisyonlar kapandığı an
+doğrudan kullanılabilir: isabet oranı, ortalama kazanç/kayıp oranı,
+maksimum düşüş (drawdown, tepe-dip takibiyle), ve aynı dönemde BTC-hold
+karşılaştırması (`python -m whale_tracker.evaluation`). 10 kapanmış
+pozisyonun altında sonuçlar yine gösteriliyor ama "düşük güvenilirlik"
+uyarısıyla. `PROJECT-PLAN.md`'nin kendi kriteri işletiliyor: BTC-hold
+strateji getirisini geçiyorsa "EVET/HAYIR" doğrudan raporda.
+
 **Sıradaki:** İlk kağıt pozisyonların açılıp kapanmasını bekleme (Kademe 3
 "strong" eşiğine ulaşan aday nadir, henüz gerçek pozisyon açılmadı);
-bilinen cüzdan listesini genişletmeye devam (Huobi/HTX hâlâ açık); Aşama 4
-(Değerlendirme — isabet oranı, P&L, BTC-hold karşılaştırması) için yeterli
-kapanmış pozisyon birikince tasarım.
+bilinen cüzdan listesini genişletmeye devam (Huobi/HTX hâlâ açık).
 
 | Aşama | Durum |
 |---|---|
 | 1. Gözlemci | ✅ tamamlandı, zamanlanmış çalışıyor |
 | 2. Sinyal üretici | ✅ 5 sinyal + Kademe 2 derin analiz + Kademe 3 kağıt öneri, gerçek veriyle doğrulanmadı henüz |
 | 3. Paper trading | ✅ kod tamam, ilk pozisyon henüz açılmadı (Kademe 3 eşiği nadir) |
-| 4. Değerlendirme | beklemede |
+| 4. Değerlendirme | ✅ ölçüm altyapısı hazır, henüz yeterli kapanmış pozisyon yok |
 | 5. Yarı otomatik (onaylı) | beklemede |
 | 6. Otomatik | beklemede |
 
