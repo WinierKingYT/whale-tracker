@@ -40,9 +40,13 @@ $Action = New-ScheduledTaskAction `
     -Argument "run python -m whale_tracker.observe --min-usd 1000000 --log-file data\observer.log" `
     -WorkingDirectory $ProjectRoot
 
+# TimeSpan]::MaxValue is out of range for a scheduled task's XML duration
+# field (confirmed empirically -- Register-ScheduledTask rejects it with
+# "Duration:P99999999DT23H59M59S"). 10 years is effectively indefinite for
+# this project and is a value Task Scheduler actually accepts.
 $Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
     -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
-    -RepetitionDuration ([TimeSpan]::MaxValue)
+    -RepetitionDuration (New-TimeSpan -Days 3650)
 
 $Settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
@@ -55,7 +59,8 @@ Register-ScheduledTask `
     -Trigger $Trigger `
     -Settings $Settings `
     -Description "whale-tracker Gozlemci -- her $IntervalMinutes dakikada bir veri toplar, islem yapmaz." `
-    -Force
+    -Force `
+    -ErrorAction Stop
 
 Write-Host "Task registered: whale-tracker-observer (every $IntervalMinutes min)"
 Write-Host "Log file: $ProjectRoot\data\observer.log"
