@@ -94,13 +94,14 @@ işlem açılmaz.
 ## 8. Geliştirme Yol Haritası
 
 1. **Gözlemci:** Balina hareketlerini, haberleri ve piyasayı toplayıp
-   günlük/anlık rapor gönderir. İşlem yok. **← şu an burada.**
+   günlük/anlık rapor gönderir. İşlem yok. ✅ tamamlandı.
 2. **Sinyal üretici:** "Burada alım fırsatı var, gerekçe şu" önerileri
-   üretir ve kaydeder.
+   üretir ve kaydeder. ✅ tamamlandı (Kademe 1-3 dahil).
 3. **Paper trading:** Önerileri sahte parayla uygular; birkaç hafta
-   sonuçlar ölçülür.
+   sonuçlar ölçülür. ✅ kod tamam, ilk pozisyon henüz açılmadı.
 4. **Değerlendirme:** Hangi sinyaller gerçekten işe yaradı? Zayıf olanlar
-   atılır.
+   atılır. ✅ ölçüm altyapısı hazır. **← şu an burada** — yeterli kapanmış
+   pozisyon (min. 10) birikmesi bekleniyor; güncel durum: README.md.
 5. **Yarı otomatik:** Küçük gerçek parayla; her işlemi kullanıcı
    onaylar.
 6. **Otomatik:** Sadece önceki aşamalar tutarlı başarı gösterirse.
