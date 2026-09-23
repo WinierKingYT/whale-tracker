@@ -11,6 +11,7 @@ def render_report(
     onchain_events: list[dict[str, Any]],
     market_snapshot: dict[str, Any] | None,
     sentiment_snapshot: dict[str, Any] | None,
+    headlines: list[dict[str, Any]] | None = None,
 ) -> str:
     lines = ["=== whale-tracker gözlemci raporu ===", ""]
 
@@ -45,5 +46,14 @@ def render_report(
             )
     else:
         lines.append("  (bu turda eşik-üstü transfer yok)")
+    lines.append("")
+
+    headlines = headlines or []
+    lines.append(f"Haberler ({len(headlines)} yeni başlık):")
+    if headlines:
+        for headline in headlines:
+            lines.append(f"  [{headline['source']}] {headline['title']}")
+    else:
+        lines.append("  (bu turda yeni başlık yok)")
 
     return "\n".join(lines)

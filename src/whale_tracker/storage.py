@@ -49,6 +49,15 @@ CREATE TABLE IF NOT EXISTS sentiment_snapshots (
     raw_json TEXT,
     observed_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS headlines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    title TEXT NOT NULL,
+    link TEXT NOT NULL UNIQUE,
+    published_at TEXT,
+    observed_at TEXT NOT NULL
+);
 """
 
 
@@ -131,6 +140,23 @@ class Storage:
             payload,
         )
         self._conn.commit()
+
+    def insert_headline(self, headline: dict[str, Any]) -> bool:
+        """Insert one headline. Returns False if it was a duplicate (same
+        link -- RSS feeds re-list recent items on every fetch, so this is
+        the normal case, not an error), True if newly inserted."""
+        try:
+            self._conn.execute(
+                """
+                INSERT INTO headlines (source, title, link, published_at, observed_at)
+                VALUES (:source, :title, :link, :published_at, :observed_at)
+                """,
+                headline,
+            )
+            self._conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
 
     def recent_onchain_events(self, limit: int = 50) -> list[dict[str, Any]]:
         rows = self._conn.execute(

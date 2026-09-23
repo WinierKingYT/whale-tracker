@@ -11,6 +11,7 @@ from pathlib import Path
 
 from whale_tracker.report import render_report
 from whale_tracker.sources.binance import BinanceMarketDataError, fetch_market_snapshot
+from whale_tracker.sources.news import NewsFeedError, fetch_headlines
 from whale_tracker.sources.onchain import OnchainScanError, scan_new_transfers
 from whale_tracker.sources.sentiment import FearGreedError, fetch_fear_greed
 from whale_tracker.storage import Storage
@@ -40,8 +41,17 @@ def run_once(db_path: Path = DEFAULT_DB_PATH, *, min_usd: float = 1_000_000.0) -
             print(f"[uyarı] Zincir üstü tarama başarısız: {error}", file=sys.stderr)
             onchain_events = []
 
+        try:
+            new_headlines = [h for h in fetch_headlines() if db.insert_headline(h)]
+        except NewsFeedError as error:
+            print(f"[uyarı] Haber akışı alınamadı: {error}", file=sys.stderr)
+            new_headlines = []
+
         return render_report(
-            onchain_events=onchain_events, market_snapshot=market, sentiment_snapshot=sentiment
+            onchain_events=onchain_events,
+            market_snapshot=market,
+            sentiment_snapshot=sentiment,
+            headlines=new_headlines,
         )
 
 
