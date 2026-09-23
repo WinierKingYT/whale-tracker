@@ -74,10 +74,19 @@ $Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
     -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
     -RepetitionDuration (New-TimeSpan -Days 3650)
 
+# MultipleInstances=IgnoreNew: if a run is still going (e.g. Hermes
+# retrying against a rate-limited backend) when the next 15-minute
+# trigger fires, skip starting a second overlapping one rather than
+# stacking runs -- an overlapping run was the real path to an orphaned
+# grandchild process/window surviving past its parent's own 5-minute
+# ExecutionTimeLimit kill (see sources/_hidden_subprocess.py's
+# run_hidden_and_reap docstring for the fix on the Python side; this is
+# the belt to that suspenders on the Task Scheduler side).
 $Settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
     -DontStopOnIdleEnd `
-    -StartWhenAvailable
+    -StartWhenAvailable `
+    -MultipleInstances IgnoreNew
 
 Register-ScheduledTask `
     -TaskName "whale-tracker-observer" `

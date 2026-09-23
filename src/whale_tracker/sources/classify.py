@@ -15,22 +15,17 @@ Opus, actual signal combination) are separate, later phases."""
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
+from ._hidden_subprocess import hide_windows_matching, run_hidden_and_reap
+
 _HERMES_PATH = shutil.which("hermes") or str(
     Path.home() / "AppData" / "Local" / "hermes" / "bin" / "hermes.exe"
 )
 _TIMEOUT_S = 30
-# Windows pops a visible console window for a console-subsystem .exe
-# launched via subprocess even with capture_output=True -- this call runs
-# every scheduled 15-minute cycle (up to classify_limit times), so a
-# flashing window would be constant and disruptive. CREATE_NO_WINDOW
-# suppresses it; only defined on Windows, hence the getattr guard.
-_NO_WINDOW_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 
 _INSTRUCTION = """Sen bir kripto piyasası zincir-üstü hareket sınıflandırıcısısın.
 Sana bir stablecoin transferi verilecek. Yalnızca şu tam şekilde bir JSON nesnesi döndür:
@@ -52,10 +47,10 @@ def _call_hermes(prompt: str) -> str:
     if not Path(_HERMES_PATH).is_file():
         raise ClassificationError("hermes CLI not found")
     try:
-        completed = subprocess.run(
-            [_HERMES_PATH, "-z", prompt, "--ignore-rules"],
-            capture_output=True, text=True, timeout=_TIMEOUT_S, creationflags=_NO_WINDOW_FLAGS,
-        )
+        with hide_windows_matching("hermes"):
+            completed = run_hidden_and_reap(
+                [_HERMES_PATH, "-z", prompt, "--ignore-rules", "--cli"], timeout=_TIMEOUT_S,
+            )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise ClassificationError("hermes CLI invocation failed") from error
     if completed.returncode != 0:

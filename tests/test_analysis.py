@@ -71,7 +71,7 @@ def test_call_claude_unwraps_result_envelope(monkeypatch):
         stderr = ""
 
     monkeypatch.setattr(analysis, "_discover_claude", lambda: "/fake/claude")
-    monkeypatch.setattr(analysis.subprocess, "run", lambda *a, **k: _FakeCompleted())
+    monkeypatch.setattr(analysis, "run_hidden_and_reap", lambda *a, **k: _FakeCompleted())
 
     raw = analysis._call_claude("irrelevant prompt")
     parsed = json.loads(raw)
@@ -85,7 +85,7 @@ def test_call_claude_raises_on_error_envelope(monkeypatch):
         stderr = ""
 
     monkeypatch.setattr(analysis, "_discover_claude", lambda: "/fake/claude")
-    monkeypatch.setattr(analysis.subprocess, "run", lambda *a, **k: _FakeCompleted())
+    monkeypatch.setattr(analysis, "run_hidden_and_reap", lambda *a, **k: _FakeCompleted())
 
     with pytest.raises(analysis.AnalysisError):
         analysis._call_claude("irrelevant prompt")
@@ -105,7 +105,7 @@ def test_call_claude_raises_cleanly_when_envelope_is_not_a_json_object(monkeypat
             stderr = ""
 
         monkeypatch.setattr(analysis, "_discover_claude", lambda: "/fake/claude")
-        monkeypatch.setattr(analysis.subprocess, "run", lambda *a, **k: _FakeCompleted())
+        monkeypatch.setattr(analysis, "run_hidden_and_reap", lambda *a, **k: _FakeCompleted())
 
         with pytest.raises(analysis.AnalysisError):
             analysis._call_claude("irrelevant prompt")
