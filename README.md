@@ -10,13 +10,33 @@ yaptığını gör, bağlamını anla, riski kontrol ederek arkasından git.
 
 Tam kapsam ve gerekçe: [docs/PROJECT-PLAN.md](docs/PROJECT-PLAN.md).
 
+## Kurulum ve çalıştırma
+
+```powershell
+uv sync --dev
+uv run pytest tests/ -v
+uv run python -m whale_tracker.observe
+```
+
+Anahtar/hesap gerekmiyor — Binance public futures API, Alternative.me
+Fear&Greed Index, ve ücretsiz bir public Ethereum RPC (publicnode.com)
+kullanıyor. Bilinen borsa cüzdanları `data/known-exchange-wallets.json`'da
+(kaynak ve doğrulama notları dahil).
+
 ## Durum
 
-**Aşama: Gözlemci (0/6).** İzleme + rapor, işlem yok, risk yok.
+**Aşama: Gözlemci (1/6) — çalışıyor, genişletilecek.** Üç kaynak da uçtan
+uca test edildi, gerçek veriyle: Binance piyasa verisi, Fear&Greed, ve
+zincir üstü büyük USDT/USDC transferleri (eşik-üstü, bilinen cüzdanlarla
+çapraz kontrollü). İşlem mantığı yok, risk yok — sadece topla + rapor et.
+
+**Sıradaki:** Bilinen cüzdan listesini genişletmek (çoğu transfer şu an
+"bilinmeyen cüzdan" çıkıyor), haber/RSS kaynağını eklemek, zamanlanmış
+çalıştırma (cron/Task Scheduler).
 
 | Aşama | Durum |
 |---|---|
-| 1. Gözlemci | 🚧 kuruluyor |
+| 1. Gözlemci | ✅ çalışıyor (genişletiliyor) |
 | 2. Sinyal üretici | beklemede |
 | 3. Paper trading | beklemede |
 | 4. Değerlendirme | beklemede |
