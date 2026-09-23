@@ -32,6 +32,12 @@ FUNDING_NEUTRAL_BAND = 0.0001  # ±0.01%
 FUNDING_HIGH_THRESHOLD = 0.0005  # 0.05%
 FUNDING_LOW_THRESHOLD = -0.0002  # -0.02%
 
+# Alternative.me's own published bands (0-100 index): <=45 fear-side,
+# >=55 greed-side, in between neutral -- not this project's calibration,
+# same revisit-later caveat as the funding bands above.
+SENTIMENT_FEAR_THRESHOLD = 45.0
+SENTIMENT_GREED_THRESHOLD = 55.0
+
 _NEGATIVE_NEWS_KEYWORDS = (
     "hack", "exploit", "hacked", "stolen", "theft", "lawsuit", "sec charges",
     "ban", "crackdown", "delist", "insolvent", "bankruptcy", "collapse",
@@ -99,6 +105,28 @@ def _classify_funding(rate: float) -> str:
     return "neutral"
 
 
+def _score_sentiment(sentiment: dict[str, Any] | None, direction: str) -> tuple[float, str]:
+    """Contrarian scoring, mirroring PROJECT-PLAN.md's own counter-example
+    ("funding çok yüksek, herkes long -> girme, ters tuzak riski var"):
+    fear corroborates accumulation, greed corroborates distribution. Found
+    missing (component was unconditional +0.15 regardless of direction or
+    value) by inspecting the first two real signal candidates the scheduled
+    observer produced -- both showed Fear&Greed=71 ("Greed") awarded full
+    credit toward an *accumulation* candidate, the opposite of what the
+    plan's own worked example says should happen."""
+    if sentiment is None:
+        return 0.0, "Fear&Greed verisi henüz yok"
+    value = sentiment["value"]
+    label = sentiment["label"]
+    if SENTIMENT_FEAR_THRESHOLD < value < SENTIMENT_GREED_THRESHOLD:
+        return 0.15, f"Fear&Greed nötr: {value:.0f} ({label}) -- yönü ne destekliyor ne çelişiyor"
+    is_fear = value <= SENTIMENT_FEAR_THRESHOLD
+    corroborates = (direction == "accumulation" and is_fear) or (direction == "distribution" and not is_fear)
+    if corroborates:
+        return 0.15, f"Fear&Greed: {value:.0f} ({label}) -- kontraryan olarak yönle tutarlı"
+    return 0.0, f"Fear&Greed: {value:.0f} ({label}) -- kontraryan olarak yönle çelişiyor, zayıflatıcı"
+
+
 def _has_recent_negative_news(headlines: list[dict[str, Any]]) -> tuple[bool, str | None]:
     for headline in headlines:
         title_lower = headline["title"].lower()
@@ -154,9 +182,9 @@ def generate_candidates(storage: Any, *, flow_window_hours: int = 24) -> list[di
             components["funding"] = 0.0
             rationale.append(f"funding {funding_class} ({market['funding_rate']:.4%}) -- yönle çelişiyor, zayıflatıcı")
 
-        if sentiment:
-            components["sentiment"] = 0.15
-            rationale.append(f"Fear&Greed: {sentiment['value']:.0f} ({sentiment['label']})")
+        sentiment_score, sentiment_detail = _score_sentiment(sentiment, direction)
+        components["sentiment"] = sentiment_score
+        rationale.append(sentiment_detail)
 
         if negative_news and direction == "accumulation":
             # Per PROJECT-PLAN.md's own worked example: accumulation +

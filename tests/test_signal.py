@@ -111,6 +111,68 @@ def test_technical_snapshot_present_contributes_a_real_score_and_lifts_the_cap(t
     assert accumulation["confidence"] > signal._MAX_CONFIDENCE_WITHOUT_TECHNICAL
 
 
+def test_high_sentiment_contradicts_accumulation_and_zeroes_the_component(tmp_path):
+    """Regression: the first two real signal candidates the scheduled
+    observer produced both had Fear&Greed=71 ("Greed") and both awarded it
+    full credit toward an accumulation candidate -- the component used to
+    be unconditional. PROJECT-PLAN.md's own worked counter-example says
+    crowded/greedy conditions should weaken, not support, a late entry."""
+    with Storage(tmp_path / "t.db") as db:
+        db.insert_market_snapshot({
+            "symbol": "BTCUSDT", "funding_rate": 0.00005, "open_interest": 100.0,
+            "mark_price": 90000.0, "observed_at": _now_iso(),
+        })
+        db.insert_sentiment_snapshot({
+            "source": "fear_greed", "value": 71.0, "label": "Greed",
+            "raw_json": {}, "observed_at": _now_iso(),
+        })
+        _seed_outflow_event(db, amount=15_000_000)
+
+        candidates = signal.generate_candidates(db)
+
+    accumulation = next(c for c in candidates if c["direction"] == "accumulation")
+    assert accumulation["components"]["sentiment"] == 0.0
+    assert "çelişiyor" in " ".join(accumulation["rationale"])
+
+
+def test_high_sentiment_corroborates_distribution(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        db.insert_market_snapshot({
+            "symbol": "BTCUSDT", "funding_rate": 0.00005, "open_interest": 100.0,
+            "mark_price": 90000.0, "observed_at": _now_iso(),
+        })
+        db.insert_sentiment_snapshot({
+            "source": "fear_greed", "value": 71.0, "label": "Greed",
+            "raw_json": {}, "observed_at": _now_iso(),
+        })
+        _seed_inflow_event(db, amount=15_000_000)
+
+        candidates = signal.generate_candidates(db)
+
+    distribution = next(c for c in candidates if c["direction"] == "distribution")
+    assert distribution["components"]["sentiment"] == 0.15
+    assert "tutarlı" in " ".join(distribution["rationale"])
+
+
+def test_low_sentiment_corroborates_accumulation(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        db.insert_market_snapshot({
+            "symbol": "BTCUSDT", "funding_rate": 0.00005, "open_interest": 100.0,
+            "mark_price": 90000.0, "observed_at": _now_iso(),
+        })
+        db.insert_sentiment_snapshot({
+            "source": "fear_greed", "value": 20.0, "label": "Extreme Fear",
+            "raw_json": {}, "observed_at": _now_iso(),
+        })
+        _seed_outflow_event(db, amount=15_000_000)
+
+        candidates = signal.generate_candidates(db)
+
+    accumulation = next(c for c in candidates if c["direction"] == "accumulation")
+    assert accumulation["components"]["sentiment"] == 0.15
+    assert "tutarlı" in " ".join(accumulation["rationale"])
+
+
 def test_price_below_support_zeroes_technical_for_accumulation(tmp_path):
     with Storage(tmp_path / "t.db") as db:
         db.insert_market_snapshot({
