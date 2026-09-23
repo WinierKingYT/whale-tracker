@@ -47,8 +47,13 @@ def _fetch_daily_klines(symbol: str, *, limit: int) -> list[list[Any]]:
     return data
 
 
-def fetch_technical_snapshot(symbol: str = "BTCUSDT", *, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> dict[str, Any]:
-    klines = _fetch_daily_klines(symbol, limit=lookback_days)
+def compute_technical_snapshot(symbol: str, klines: list[list[Any]], *, lookback_days: int) -> dict[str, Any]:
+    """Pure computation over daily klines -- no network I/O. Split out of
+    fetch_technical_snapshot() so simulation/market.py can run the exact
+    same support/resistance/trend logic against synthetic candles instead
+    of a parallel reimplementation that could silently drift from the
+    real thing. `klines` is Binance's raw kline shape: a list of
+    [open_time, open, high, low, close, ...] rows, oldest first."""
     highs = [float(candle[2]) for candle in klines]
     lows = [float(candle[3]) for candle in klines]
     closes = [float(candle[4]) for candle in klines]
@@ -96,3 +101,8 @@ def fetch_technical_snapshot(symbol: str = "BTCUSDT", *, lookback_days: int = DE
         "is_near_resistance": is_near_resistance,
         "observed_at": datetime.now(UTC).isoformat(),
     }
+
+
+def fetch_technical_snapshot(symbol: str = "BTCUSDT", *, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> dict[str, Any]:
+    klines = _fetch_daily_klines(symbol, limit=lookback_days)
+    return compute_technical_snapshot(symbol, klines, lookback_days=lookback_days)

@@ -75,13 +75,22 @@ def _score_technical(technical: dict[str, Any] | None, direction: str) -> tuple[
         return score, detail
 
 
-def _aggregate_exchange_flow(storage: Any, *, hours: int) -> dict[str, float]:
+def _aggregate_exchange_flow(storage: Any, *, hours: int, now: datetime | None = None) -> dict[str, float]:
     """Net stablecoin flow into/out of KNOWN exchange wallets over the
     window. Positive net_inflow_usd = more moved INTO exchanges (possible
     sell pressure); negative = net outflow (possible accumulation).
     Deliberately excludes dex/flagged/unknown -- only wallets tagged with
-    a plain exchange name (not "DEX:"/"⚠ FLAGGED:") count toward this."""
-    cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+    a plain exchange name (not "DEX:"/"⚠ FLAGGED:") count toward this.
+
+    `now` defaults to real wall-clock time (production's only real use
+    case) but is an explicit parameter, not a hidden datetime.now() call,
+    so simulate.py can pass its own advancing simulated clock -- without
+    this, a fast simulation whose clock races days/weeks ahead of real
+    time would compare simulated event timestamps against a cutoff still
+    anchored to real "now," so the window would never roll off a single
+    event (found by actually running a long simulation, see simulate.py's
+    run_cycle comment)."""
+    cutoff = ((now or datetime.now(UTC)) - timedelta(hours=hours)).isoformat()
     events = storage.recent_onchain_events(limit=5000)
     inflow = 0.0
     outflow = 0.0
@@ -136,7 +145,9 @@ def _has_recent_negative_news(headlines: list[dict[str, Any]]) -> tuple[bool, st
     return False, None
 
 
-def generate_candidates(storage: Any, *, symbol: str = "BTCUSDT", flow_window_hours: int = 24) -> list[dict[str, Any]]:
+def generate_candidates(
+    storage: Any, *, symbol: str = "BTCUSDT", flow_window_hours: int = 24, now: datetime | None = None,
+) -> list[dict[str, Any]]:
     """Return a list of at most one candidate per direction (accumulation/
     distribution) for `symbol`, each with its component scores and
     rationale. Returns an empty list when corroboration is weak or data
@@ -148,8 +159,13 @@ def generate_candidates(storage: Any, *, symbol: str = "BTCUSDT", flow_window_ho
     buys, and headlines aren't asset-tagged) -- only market/technical are
     looked up per `symbol`. This is a real simplification: the same flow
     reading corroborates a BTC and an ETH candidate in the same cycle,
-    which is the existing design's own scope, not new to multi-symbol."""
-    flow = _aggregate_exchange_flow(storage, hours=flow_window_hours)
+    which is the existing design's own scope, not new to multi-symbol.
+
+    `now` is passed straight through to _aggregate_exchange_flow -- see
+    that function's docstring for why it's an explicit parameter rather
+    than an implicit datetime.now() call (production never passes it;
+    simulate.py always does)."""
+    flow = _aggregate_exchange_flow(storage, hours=flow_window_hours, now=now)
     market = storage.latest_market_snapshot(symbol)
     sentiment = storage.latest_sentiment_snapshot("fear_greed")
     technical = storage.latest_technical_snapshot(symbol)
@@ -225,7 +241,7 @@ def generate_candidates(storage: Any, *, symbol: str = "BTCUSDT", flow_window_ho
             "rationale": rationale,
             "flow": flow,
             "technical_available": technical is not None,
-            "generated_at": datetime.now(UTC).isoformat(),
+            "generated_at": (now or datetime.now(UTC)).isoformat(),
         })
 
     return candidates

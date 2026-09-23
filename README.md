@@ -23,6 +23,45 @@ Fear&Greed Index, ve ücretsiz bir public Ethereum RPC (publicnode.com)
 kullanıyor. Bilinen borsa cüzdanları `data/known-exchange-wallets.json`'da
 (kaynak ve doğrulama notları dahil).
 
+### Simülasyon (test aracı)
+
+Gerçek veride Kademe 3'ün "strong" eşiği nadir tetiklendiği için
+`paper_trading.py`/`evaluation.py`'yi gerçek veriyle hacimli test etmek
+haftalar sürer. `simulate.py`, gerçekçi ama sahte bir borsa akışı
+(fiyat/funding/OI random walk, sentetik zincir-üstü transferler, haberler)
+üretip **gerçek pipeline'ı** (signal.py, Kademe 1-3, paper trading,
+evaluation — hiçbiri değişmemiş) bu veriye karşı hızla, kendi ayrı
+`data/simulation.db`'sine yazarak çalıştırır:
+
+```powershell
+uv run python -m whale_tracker.simulate --cycles 500 --seed 7
+```
+
+AI (Kademe 1/2/3) varsayılan olarak **kapalı** (`--with-ai` ile açılır,
+gerçek Hermes/Sonnet/Opus kotanı kullanır) — kapalıyken sentetik ama
+açıkça etiketli metin üretilir, ama stop-loss/pozisyon büyüklüğü gibi
+deterministik risk matematiği hep gerçek koddan gelir, hiç sahte değildir.
+
+1500 döngülük gerçek bir çalıştırma (seed=99) 46 kapanmış pozisyon
+üretti — Aşama 4'ün ilk kez gerçek/dolu bir skor kartı: %69.6 isabet
+ama ortalama kazanç (+%0.36) ortalama kayıptan (-%4.23) çok küçük, yani
+çoğunlukla kazanıyor ama net -%0.48 kaybediyor (yine de aynı pencerede
+BTC-hold -%3.09'u geçiyor). Bu bir hata değil — mevcut risk kurallarının
+(hedef dirence yakın/kolay tetiklenir, stop destek altına geniş tampon)
+gerçek/rastgele bir fiyat yolunda nasıl davrandığına dair genuine bir
+bulgu; gerçek veri birikince tekrar bakılmaya değer.
+
+Kurulurken iki gerçek zamanlama hatası bulundu ve düzeltildi: (1)
+onchain/sentiment/haber üreticileri gerçek duvar-saati kullanıyordu,
+piyasa simülatörü ise kendi ilerleyen saatini — bu yüzden "24 saatlik
+akış" penceresi hiç kaymıyor, sürekli büyüyen bir toplama dönüşüyordu
+(artık `signal.py`/`paper_trading.py` hepsi açık bir `now=` parametresi
+alıyor, production davranışı değişmedi). (2) haber üretim oranı
+gerçekte gözlemlenenden çok yüksekti, bu da negatif-haber cezasının
+`accumulation` yönünü sürekli bastırıp `distribution`'ı hiç
+etkilememesine yol açıyordu — gerçek `observer.log` verisine göre
+kalibre edildi.
+
 ## Durum
 
 **Aşama: Gözlemci tamamlandı (1/6), Sinyal üretici tüm sinyalleriyle
@@ -80,16 +119,23 @@ kalıyor, asset-özel değiller — bilinçli bir basitleştirme). Gerçek canl�
 veriyle uçtan uca doğrulandı, mevcut veritabanı sorunsuz göç etti (yeni
 `symbol` sütunu, eski kayıtlar BTCUSDT'ye varsayılan).
 
-**Sıradaki:** İlk kağıt pozisyonların açılıp kapanmasını bekleme (Kademe 3
-"strong" eşiğine ulaşan aday nadir, henüz gerçek pozisyon açılmadı);
-bilinen cüzdan listesini genişletmeye devam (Huobi/HTX hâlâ açık).
+**Simülasyon eklendi** (`simulate.py`, `simulation/`) — yukarıdaki
+"Simülasyon" bölümüne bak. Gerçek veri yerine geçmiyor, sadece gerçek
+pipeline'ı hızlı/hacimli test etmek için; kendi ayrı `data/simulation.db`
+dosyasına yazıyor. `analysis.py`/`classify.py`'deki Hermes/Claude CLI
+çağrılarının Windows'ta sürekli konsol penceresi açıp kapatması da
+düzeltildi (`CREATE_NO_WINDOW`).
+
+**Sıradaki:** İlk gerçek kağıt pozisyonların açılıp kapanmasını bekleme
+(Kademe 3 "strong" eşiğine ulaşan aday nadir); bilinen cüzdan listesini
+genişletmeye devam (Huobi/HTX hâlâ açık).
 
 | Aşama | Durum |
 |---|---|
 | 1. Gözlemci | ✅ tamamlandı, zamanlanmış çalışıyor |
 | 2. Sinyal üretici | ✅ 5 sinyal + Kademe 2 derin analiz + Kademe 3 kağıt öneri, gerçek veriyle doğrulanmadı henüz |
-| 3. Paper trading | ✅ kod tamam, ilk pozisyon henüz açılmadı (Kademe 3 eşiği nadir) |
-| 4. Değerlendirme | ✅ ölçüm altyapısı hazır, henüz yeterli kapanmış pozisyon yok |
+| 3. Paper trading | ✅ kod tamam, simülasyonla doğrulandı, gerçek pozisyon henüz açılmadı (Kademe 3 eşiği nadir) |
+| 4. Değerlendirme | ✅ ölçüm altyapısı hazır, simülasyonla doğrulandı, henüz yeterli gerçek kapanmış pozisyon yok |
 | 5. Yarı otomatik (onaylı) | beklemede |
 | 6. Otomatik | beklemede |
 

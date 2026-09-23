@@ -42,12 +42,16 @@ MAX_HOLD_DAYS = 7
 
 def open_position(
     candidate_id: int, proposal: dict[str, Any], market_price: float, technical: dict[str, Any] | None,
-    *, symbol: str = "BTCUSDT",
+    *, symbol: str = "BTCUSDT", now: datetime | None = None,
 ) -> dict[str, Any] | None:
     """Open a paper position from a Kademe 3 long_candidate proposal.
     Returns None (does not open) when the risk/reward setup doesn't make
     sense -- e.g. price already through the stop-loss or past the
-    take-profit level -- rather than opening a broken position."""
+    take-profit level -- rather than opening a broken position.
+
+    `now` defaults to real wall-clock time (production) but is explicit
+    so simulate.py can pass its own advancing simulated clock -- see
+    check_and_close_positions' docstring for why this seam matters."""
     if proposal["action"] != "long_candidate":
         return None
     if not technical or not technical.get("resistance"):
@@ -66,7 +70,7 @@ def open_position(
         "take_profit_price": take_profit_price,
         "position_size_usd": round(VIRTUAL_CAPITAL_USD * proposal["max_position_size_pct"], 2),
         "status": "open",
-        "opened_at": datetime.now(UTC).isoformat(),
+        "opened_at": (now or datetime.now(UTC)).isoformat(),
     }
 
 
@@ -75,14 +79,22 @@ def _pnl(entry_price: float, exit_price: float, position_size_usd: float) -> tup
     return round(position_size_usd * pnl_pct, 2), round(pnl_pct, 4)
 
 
-def check_and_close_positions(storage: Any, current_prices: dict[str, float]) -> list[dict[str, Any]]:
+def check_and_close_positions(
+    storage: Any, current_prices: dict[str, float], *, now: datetime | None = None,
+) -> list[dict[str, Any]]:
     """Check every open paper position against `current_prices` (mapping
     symbol -> current price); close and record any that hit stop-loss,
     take-profit, or MAX_HOLD_DAYS. Returns the list of positions closed
     this call (empty most cycles). A position whose symbol has no price
     this cycle (e.g. that source failed -- see observe.py) is left open
-    and simply skipped, not treated as an error."""
-    now = datetime.now(UTC)
+    and simply skipped, not treated as an error.
+
+    `now` defaults to real wall-clock time (production) but is explicit
+    so simulate.py can pass its own advancing simulated clock -- without
+    it, MAX_HOLD_DAYS would never trigger in a fast simulation (simulated
+    opened_at timestamps race ahead of real "now," so `now - opened_at`
+    would compare against a `now` that barely moved during the run)."""
+    now = now or datetime.now(UTC)
     closed: list[dict[str, Any]] = []
     for position in storage.open_paper_positions():
         current_price = current_prices.get(position.get("symbol", "BTCUSDT"))
