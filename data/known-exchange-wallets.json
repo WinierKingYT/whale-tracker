@@ -40,22 +40,31 @@
       ]
     },
     "coinbase": {
-      "structure": "found via web search, not a single clean label page -- less complete than the others, needs a follow-up pass",
+      "structure": "found via web search, not a single clean label page -- less complete than the others, needs a follow-up pass. Etherscan's own /accounts/label/coinbase page returned 'no matching entries' on every fetch attempt (possibly anti-automation on that specific page); worked fine for binance/bitfinex/gemini.",
       "wallets": [
         {"label": "Coinbase 1", "address": "0x71660c4005ba85c37ccec55d0c4493e66fe775d3"},
         {"label": "Coinbase 23", "address": "0xddfabcdc4d8ffc6d5beaf154f18b778f892a0740"},
         {"label": "Coinbase 44", "address": "0xb5d85cbf7cb3ee0d56b3bb207d5fc4b82f43f511"}
       ]
+    },
+    "kraken": {
+      "structure": "the direct label page (/accounts/label/kraken) returns thousands of per-user 'Kraken Dep: 0x...' deposit addresses, NOT a small main-wallet set -- but the actual main custody/hot wallets DO exist under different individual labels, found via general web search instead of the label page. This confirms the general on-chain-analytics pattern: per-user deposit addresses eventually sweep funds into a small set of real custody wallets; watch those, not the deposit addresses.",
+      "wallets": [
+        {"label": "Kraken: Hot Wallet", "address": "0xe9f7ecae3a53d2a67105292894676b00d1fab785", "note": "balance verified near-zero at check time -- expected for an active hot wallet, always fetch live balance, never trust a cached figure from search results"},
+        {"label": "Kraken 3", "address": "0xe853c56864a2ebe4576a807d26fdc4a0ada51919", "note": "one search result claimed 801,052 ETH here; live Etherscan fetch showed 0.057 ETH -- that figure was stale/wrong. Confirms: never hardcode a balance, only the address is durable"},
+        {"label": "Kraken 4", "address": "0x267be1c1d684f78cb4f6a176c4911b741e4ffdc0"}
+      ]
     }
   },
   "excluded_or_deferred": {
-    "kraken": "Different on-chain structure: Etherscan's label page returns many individually-numbered 'Kraken Dep: 0x...' per-user deposit addresses (78,727 total per the label cloud count), not a small set of main wallets like Binance/Bitfinex/Gemini. Tracking Kraken flow this way needs either the full deposit-address list or a different identification approach -- deferred, not solved yet.",
     "okx": "Label cloud only showed an 'okx-labs' entry (11 accounts) -- does not look like their main exchange wallets. Not verified, not included.",
     "bybit": "Label cloud only showed a 'bybit-exploit' entry (77 accounts) -- appears to be hack-incident-related addresses, not their main exchange wallets. Not verified, not included.",
     "huobi_htx": "Not researched yet."
   },
   "known_false_positive_traps": [
     "Substring-matching 'binance' (or any exchange name) against a label/nameTag field catches OTHER platforms' individual deposit wallets INTO that exchange (e.g. 'Bilaxy: Binance Dep: 0x...', 'Alameda Research: Binance Deposit') -- these are not the exchange's own wallets. This is how the eth-labels dataset's 5102 'binance' matches were almost entirely false positives. Always verify against the exchange's own primary label page, not a substring match.",
-    "'0x: Coinbase Wallet Proxy' is a 0x-protocol smart contract, unrelated to Coinbase the company -- a naming coincidence, not a Coinbase wallet."
+    "'0x: Coinbase Wallet Proxy' is a 0x-protocol smart contract, unrelated to Coinbase the company -- a naming coincidence, not a Coinbase wallet.",
+    "A search result's stated wallet balance can be badly stale (Kraken 3 was quoted at 801,052 ETH in one search snippet; the live Etherscan value was 0.057 ETH). Balances are not durable facts -- only addresses/labels are worth recording here; always fetch balances live at run time.",
+    "A wallet's own dedicated Etherscan label page (/accounts/label/<name>) is not always the right list for a given exchange -- Kraken's page returns per-user deposit addresses, not the main custody wallets, which had to be found via general search instead."
   ]
 }

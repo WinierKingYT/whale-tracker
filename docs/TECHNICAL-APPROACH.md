@@ -23,10 +23,14 @@ doğrulandı. Sonuç `data/known-exchange-wallets.json`'da:
   listeleri — doğrudan kullanılabilir.
 - **Coinbase**: web aramasıyla bulundu (Coinbase 1/23/44), ama tek bir
   temiz etiket sayfası yok — daha eksik, ileride tamamlanmalı.
-- **Kraken**: **farklı bir yapı.** Etiket sayfası binlerce ayrı
-  "Kraken Dep: 0x..." kullanıcı-başına-depozito adresi döndürüyor (78.727
-  toplam), Binance gibi küçük bir ana-cüzdan seti değil. Bu borsa için
-  akış takibi farklı bir yaklaşım gerektiriyor — şimdilik ertelendi.
+- **Kraken**: **farklı bir yapı, ama çözüldü.** Etiket sayfası (`/accounts/label/kraken`)
+  binlerce ayrı "Kraken Dep: 0x..." kullanıcı-başına-depozito adresi
+  döndürüyor, ama bu adresler nihayetinde küçük bir gerçek saklama
+  (custody) cüzdanı setine "süpürülüyor" — on-chain analitik camiasının
+  standart yaklaşımı da bu (bkz. Glassnode/Dune metodolojisi: depozito
+  adresi = dışarıdan alıp bilinen CEX hot wallet'ına aktaran adres). Genel
+  aramayla gerçek 3 ana Kraken cüzdanını buldum ve doğruladım ("Kraken: Hot
+  Wallet", "Kraken 3", "Kraken 4") — etiket sayfası yerine.
 - **OKX, Bybit**: label cloud'da bulunan girdiler ("okx-labs",
   "bybit-exploit") ana cüzdanları temsil etmiyor gibi görünüyor,
   doğrulanmadı, dahil edilmedi.
