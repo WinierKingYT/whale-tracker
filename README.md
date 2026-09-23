@@ -52,18 +52,26 @@ stop-loss fiyatı AI'ye bırakılmıyor, kod tarafında sabit kurallarla
 (section 7, "Değişmez Anayasa") hesaplanıyor. Yön yalnızca `accumulation`
 olduğunda öneri üretiliyor (henüz spot-long dışı kapsam yok); teknik
 anlık görüntü/destek seviyesi yoksa stop-loss hesaplanamıyor ve öneri hiç
-üretilmiyor. Hiçbir aşamada gerçek emir yok, gerçek para yok.
+üretilmiyor. **Aşama 3, Paper trading** (`paper_trading.py`) devrede: her
+Kademe 3 `long_candidate` önerisi $10.000 sanal sermaye üzerinden kağıt
+pozisyona dönüşüyor (büyüklük yine %1 kuralıyla, ~$100/pozisyon). Stop-loss
+zaten Kademe 3'ten geliyor; hedef (take-profit) direnç seviyesinden kod
+tarafında türetiliyor. Her turda açık pozisyonlar gerçek piyasa fiyatına
+karşı kontrol ediliyor — stop, hedef veya 7 gün (swing tarzı üst sınır)
+dolunca otomatik kapanıp P&L kaydediliyor. Hâlâ hiçbir aşamada gerçek emir
+yok, gerçek para yok — bu tamamen kod içi defter tutma.
 
-**Sıradaki:** Birkaç günlük gerçek sinyal-aday verisi biriktirip gözden
-geçirme (artık Kademe 2/3 yorumuyla birlikte); bilinen cüzdan listesini
-genişletmeye devam; Aşama 3 (Paper trading — önerileri sahte parayla
-uygulayıp izleme) tasarımı.
+**Sıradaki:** İlk kağıt pozisyonların açılıp kapanmasını bekleme (Kademe 3
+"strong" eşiğine ulaşan aday nadir, henüz gerçek pozisyon açılmadı);
+bilinen cüzdan listesini genişletmeye devam (Huobi/HTX hâlâ açık); Aşama 4
+(Değerlendirme — isabet oranı, P&L, BTC-hold karşılaştırması) için yeterli
+kapanmış pozisyon birikince tasarım.
 
 | Aşama | Durum |
 |---|---|
 | 1. Gözlemci | ✅ tamamlandı, zamanlanmış çalışıyor |
 | 2. Sinyal üretici | ✅ 5 sinyal + Kademe 2 derin analiz + Kademe 3 kağıt öneri, gerçek veriyle doğrulanmadı henüz |
-| 3. Paper trading | beklemede |
+| 3. Paper trading | ✅ kod tamam, ilk pozisyon henüz açılmadı (Kademe 3 eşiği nadir) |
 | 4. Değerlendirme | beklemede |
 | 5. Yarı otomatik (onaylı) | beklemede |
 | 6. Otomatik | beklemede |

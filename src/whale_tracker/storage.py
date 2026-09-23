@@ -119,6 +119,22 @@ CREATE TABLE IF NOT EXISTS final_proposals (
     conviction TEXT,
     generated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS paper_positions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_candidate_id INTEGER NOT NULL REFERENCES signal_candidates(id),
+    entry_price REAL NOT NULL,
+    stop_loss_price REAL NOT NULL,
+    take_profit_price REAL NOT NULL,
+    position_size_usd REAL NOT NULL,
+    status TEXT NOT NULL,
+    opened_at TEXT NOT NULL,
+    closed_at TEXT,
+    exit_price REAL,
+    pnl_usd REAL,
+    pnl_pct REAL
+);
+CREATE INDEX IF NOT EXISTS idx_paper_positions_status ON paper_positions(status);
 """
 
 
@@ -283,6 +299,43 @@ class Storage:
             ),
         )
         self._conn.commit()
+
+    def insert_paper_position(self, position: dict[str, Any]) -> int:
+        cursor = self._conn.execute(
+            """
+            INSERT INTO paper_positions
+                (signal_candidate_id, entry_price, stop_loss_price, take_profit_price,
+                 position_size_usd, status, opened_at)
+            VALUES (:signal_candidate_id, :entry_price, :stop_loss_price, :take_profit_price,
+                    :position_size_usd, :status, :opened_at)
+            """,
+            position,
+        )
+        self._conn.commit()
+        return int(cursor.lastrowid)
+
+    def open_paper_positions(self) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM paper_positions WHERE status = 'open' ORDER BY opened_at"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def close_paper_position(
+        self, position_id: int, *, exit_price: float, status: str, closed_at: str, pnl_usd: float, pnl_pct: float,
+    ) -> None:
+        self._conn.execute(
+            """
+            UPDATE paper_positions
+            SET status = ?, closed_at = ?, exit_price = ?, pnl_usd = ?, pnl_pct = ?
+            WHERE id = ?
+            """,
+            (status, closed_at, exit_price, pnl_usd, pnl_pct, position_id),
+        )
+        self._conn.commit()
+
+    def all_paper_positions(self) -> list[dict[str, Any]]:
+        rows = self._conn.execute("SELECT * FROM paper_positions ORDER BY opened_at").fetchall()
+        return [dict(row) for row in rows]
 
     def insert_classification(self, tx_hash: str, log_index: int, classification: dict[str, Any], observed_at: str) -> None:
         self._conn.execute(

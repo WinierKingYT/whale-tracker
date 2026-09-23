@@ -10,6 +10,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from whale_tracker.paper_trading import check_and_close_positions, open_position
 from whale_tracker.report import render_report
 from whale_tracker.signal import generate_candidates
 from whale_tracker.sources.analysis import AnalysisError, generate_deep_analysis
@@ -102,10 +103,26 @@ def run_once(
                         proposal = generate_final_proposal(candidate, analysis, deep_context)
                         db.insert_final_proposal(candidate_id, proposal, datetime.now(UTC).isoformat())
                         candidate["final_proposal"] = proposal
+
+                        # Aşama 3, Paper trading: a real proposal gets a
+                        # simulated position, tracked against real prices
+                        # from here on. No exchange client, no real money
+                        # -- see paper_trading.py's own docstring.
+                        if market:
+                            position = open_position(
+                                candidate_id, proposal, market["mark_price"], deep_context["technical_snapshot"],
+                            )
+                            if position:
+                                db.insert_paper_position(position)
+                                candidate["paper_position"] = position
                     except ProposalError as error:
                         print(f"[uyarı] Kademe 3 öneri başarısız: {error}", file=sys.stderr)
             except AnalysisError as error:
                 print(f"[uyarı] Kademe 2 analiz başarısız: {error}", file=sys.stderr)
+
+        # Every cycle, regardless of whether a new candidate showed up:
+        # check already-open paper positions against the current price.
+        closed_positions = check_and_close_positions(db, market["mark_price"]) if market else []
 
         return render_report(
             onchain_events=onchain_events,
@@ -113,6 +130,7 @@ def run_once(
             sentiment_snapshot=sentiment,
             headlines=new_headlines,
             signal_candidates=candidates,
+            closed_positions=closed_positions,
         )
 
 

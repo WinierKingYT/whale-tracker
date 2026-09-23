@@ -49,6 +49,7 @@ def render_report(
     sentiment_snapshot: dict[str, Any] | None,
     headlines: list[dict[str, Any]] | None = None,
     signal_candidates: list[dict[str, Any]] | None = None,
+    closed_positions: list[dict[str, Any]] | None = None,
 ) -> str:
     lines = ["=== whale-tracker gözlemci raporu ===", ""]
 
@@ -82,6 +83,24 @@ def render_report(
                     lines.append(f"      en kötü senaryo: {proposal['worst_case_scenario']}")
                     for counter in proposal["counter_arguments"]:
                         lines.append(f"      karşı argüman: {counter}")
+            position = candidate.get("paper_position")
+            if position:
+                lines.append(
+                    f"      → Aşama 3 kağıt pozisyon açıldı: giriş=${position['entry_price']:,.0f}, "
+                    f"stop=${position['stop_loss_price']:,.0f}, hedef=${position['take_profit_price']:,.0f}, "
+                    f"büyüklük=${position['position_size_usd']:,.0f}"
+                )
+        lines.append("")
+
+    closed_positions = closed_positions or []
+    if closed_positions:
+        lines.append("Kapanan kağıt pozisyonlar (bu turda):")
+        for position in closed_positions:
+            lines.append(
+                f"  [{position['status']}] giriş=${position['entry_price']:,.0f} → "
+                f"çıkış=${position['exit_price']:,.0f}, P&L=${position['pnl_usd']:,.2f} "
+                f"({position['pnl_pct']:+.2%})"
+            )
         lines.append("")
 
     lines.append("Piyasa (BTCUSDT):")
