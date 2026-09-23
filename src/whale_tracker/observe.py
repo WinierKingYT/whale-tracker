@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from whale_tracker.report import render_report
+from whale_tracker.signal import generate_candidates
 from whale_tracker.sources.binance import BinanceMarketDataError, fetch_market_snapshot
 from whale_tracker.sources.classify import classify_top_events
 from whale_tracker.sources.news import NewsFeedError, fetch_headlines
@@ -62,11 +63,20 @@ def run_once(
             db.insert_classification(event["tx_hash"], event["log_index"], classification, classified_at)
             event["classification"] = classification
 
+        # Aşama 2, Sinyal üretici: corroborate the accumulated signals into
+        # scored candidates. Still no trading -- see signal.py's own
+        # docstring for what's covered and what's structurally missing
+        # (no technical/support-resistance signal yet).
+        candidates = generate_candidates(db)
+        for candidate in candidates:
+            db.insert_signal_candidate(candidate)
+
         return render_report(
             onchain_events=onchain_events,
             market_snapshot=market,
             sentiment_snapshot=sentiment,
             headlines=new_headlines,
+            signal_candidates=candidates,
         )
 
 

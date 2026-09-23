@@ -48,8 +48,21 @@ def render_report(
     market_snapshot: dict[str, Any] | None,
     sentiment_snapshot: dict[str, Any] | None,
     headlines: list[dict[str, Any]] | None = None,
+    signal_candidates: list[dict[str, Any]] | None = None,
 ) -> str:
     lines = ["=== whale-tracker gözlemci raporu ===", ""]
+
+    signal_candidates = signal_candidates or []
+    if signal_candidates:
+        lines.append("Sinyal adayları (henüz işlem değil, öneri + gerekçe):")
+        for candidate in signal_candidates:
+            lines.append(
+                f"  [{candidate['direction']}] güven={candidate['confidence']:.2f} "
+                f"(teknik/destek-direnç sinyali eksik olduğu için tavanlı)"
+            )
+            for line in candidate["rationale"]:
+                lines.append(f"    - {line}")
+        lines.append("")
 
     lines.append("Piyasa (BTCUSDT):")
     if market_snapshot:

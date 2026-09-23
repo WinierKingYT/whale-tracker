@@ -60,6 +60,15 @@ CREATE TABLE IF NOT EXISTS sentiment_snapshots (
     observed_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS signal_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    direction TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    components_json TEXT NOT NULL,
+    rationale_json TEXT NOT NULL,
+    generated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS headlines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL,
@@ -151,6 +160,21 @@ class Storage:
         )
         self._conn.commit()
 
+    def insert_signal_candidate(self, candidate: dict[str, Any]) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO signal_candidates (direction, confidence, components_json, rationale_json, generated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                candidate["direction"], candidate["confidence"],
+                json.dumps(candidate["components"], ensure_ascii=False),
+                json.dumps(candidate["rationale"], ensure_ascii=False),
+                candidate["generated_at"],
+            ),
+        )
+        self._conn.commit()
+
     def insert_classification(self, tx_hash: str, log_index: int, classification: dict[str, Any], observed_at: str) -> None:
         self._conn.execute(
             """
@@ -179,6 +203,12 @@ class Storage:
             return True
         except sqlite3.IntegrityError:
             return False
+
+    def recent_headlines(self, limit: int = 50) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM headlines ORDER BY observed_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def recent_onchain_events(self, limit: int = 50) -> list[dict[str, Any]]:
         rows = self._conn.execute(

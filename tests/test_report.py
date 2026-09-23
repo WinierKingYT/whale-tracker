@@ -35,3 +35,17 @@ def test_report_handles_empty_and_missing_sections():
     assert "(veri yok)" in report
     assert "(bu turda eşik-üstü transfer yok)" in report
     assert "(bu turda yeni başlık yok)" in report
+    assert "Sinyal adayları" not in report  # no section printed when there are none
+
+
+def test_report_shows_signal_candidates_with_rationale():
+    candidate = {
+        "direction": "accumulation", "confidence": 0.62,
+        "rationale": ["24s net borsa akışı: çıkış $15,000,000", "funding nötr (0.0050%)"],
+    }
+    report = render_report(
+        onchain_events=[], market_snapshot=None, sentiment_snapshot=None,
+        signal_candidates=[candidate],
+    )
+    assert "[accumulation] güven=0.62" in report
+    assert "24s net borsa akışı: çıkış $15,000,000" in report
