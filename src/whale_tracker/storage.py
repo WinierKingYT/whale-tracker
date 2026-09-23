@@ -51,6 +51,24 @@ CREATE TABLE IF NOT EXISTS market_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_market_symbol_time ON market_snapshots(symbol, observed_at);
 
+CREATE TABLE IF NOT EXISTS technical_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    current_price REAL,
+    support REAL,
+    resistance REAL,
+    sma REAL,
+    trend TEXT,
+    volatility_daily_stddev REAL,
+    distance_to_support_pct REAL,
+    is_above_support INTEGER,
+    is_near_support INTEGER,
+    distance_to_resistance_pct REAL,
+    is_near_resistance INTEGER,
+    observed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_technical_symbol_time ON technical_snapshots(symbol, observed_at);
+
 CREATE TABLE IF NOT EXISTS sentiment_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL,
@@ -137,6 +155,39 @@ class Storage:
             (source, block_number, observed_at),
         )
         self._conn.commit()
+
+    def insert_technical_snapshot(self, snapshot: dict[str, Any]) -> None:
+        payload = dict(snapshot)
+        payload["is_above_support"] = int(bool(payload["is_above_support"]))
+        payload["is_near_support"] = int(bool(payload["is_near_support"]))
+        payload["is_near_resistance"] = int(bool(payload["is_near_resistance"]))
+        self._conn.execute(
+            """
+            INSERT INTO technical_snapshots
+                (symbol, current_price, support, resistance, sma, trend,
+                 volatility_daily_stddev, distance_to_support_pct, is_above_support, is_near_support,
+                 distance_to_resistance_pct, is_near_resistance, observed_at)
+            VALUES
+                (:symbol, :current_price, :support, :resistance, :sma, :trend,
+                 :volatility_daily_stddev, :distance_to_support_pct, :is_above_support, :is_near_support,
+                 :distance_to_resistance_pct, :is_near_resistance, :observed_at)
+            """,
+            {k: v for k, v in payload.items() if k != "lookback_days"},
+        )
+        self._conn.commit()
+
+    def latest_technical_snapshot(self, symbol: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM technical_snapshots WHERE symbol = ? ORDER BY observed_at DESC LIMIT 1",
+            (symbol,),
+        ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        result["is_above_support"] = bool(result["is_above_support"])
+        result["is_near_support"] = bool(result["is_near_support"])
+        result["is_near_resistance"] = bool(result["is_near_resistance"])
+        return result
 
     def insert_market_snapshot(self, snapshot: dict[str, Any]) -> None:
         self._conn.execute(

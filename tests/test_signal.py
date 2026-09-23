@@ -83,3 +83,52 @@ def test_old_events_outside_window_are_excluded(tmp_path):
         candidates = signal.generate_candidates(db, flow_window_hours=24)
 
     assert candidates == []  # no flow signal inside the window -> nothing to corroborate
+
+
+def test_technical_snapshot_present_contributes_a_real_score_and_lifts_the_cap(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        db.insert_market_snapshot({
+            "symbol": "BTCUSDT", "funding_rate": 0.00005, "open_interest": 100.0,
+            "mark_price": 90000.0, "observed_at": _now_iso(),
+        })
+        db.insert_technical_snapshot({
+            "symbol": "BTCUSDT", "current_price": 90000.0, "support": 85000.0,
+            "resistance": 95000.0, "sma": 88000.0, "trend": "yükseliş",
+            "volatility_daily_stddev": 0.02, "distance_to_support_pct": 0.058,
+            "is_above_support": True, "is_near_support": False,
+            "distance_to_resistance_pct": 0.052, "is_near_resistance": False,
+            "observed_at": _now_iso(),
+        })
+        _seed_outflow_event(db, amount=15_000_000)
+
+        candidates = signal.generate_candidates(db)
+
+    accumulation = next(c for c in candidates if c["direction"] == "accumulation")
+    assert accumulation["components"]["technical"] > 0.0
+    assert "desteğinin üstünde" in " ".join(accumulation["rationale"])
+    # a real technical score means the old fallback cap no longer applies --
+    # confidence can legitimately exceed it now.
+    assert accumulation["confidence"] > signal._MAX_CONFIDENCE_WITHOUT_TECHNICAL
+
+
+def test_price_below_support_zeroes_technical_for_accumulation(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        db.insert_market_snapshot({
+            "symbol": "BTCUSDT", "funding_rate": 0.00005, "open_interest": 100.0,
+            "mark_price": 90000.0, "observed_at": _now_iso(),
+        })
+        db.insert_technical_snapshot({
+            "symbol": "BTCUSDT", "current_price": 80000.0, "support": 85000.0,
+            "resistance": 95000.0, "sma": 88000.0, "trend": "düşüş",
+            "volatility_daily_stddev": 0.02, "distance_to_support_pct": -0.058,
+            "is_above_support": False, "is_near_support": False,
+            "distance_to_resistance_pct": 0.158, "is_near_resistance": False,
+            "observed_at": _now_iso(),
+        })
+        _seed_outflow_event(db, amount=15_000_000)
+
+        candidates = signal.generate_candidates(db)
+
+    accumulation = next(c for c in candidates if c["direction"] == "accumulation")
+    assert accumulation["components"]["technical"] == 0.0
+    assert "ALTINDA" in " ".join(accumulation["rationale"])

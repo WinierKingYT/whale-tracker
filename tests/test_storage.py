@@ -32,6 +32,23 @@ def test_scan_cursor_roundtrip(tmp_path):
         assert db.get_scan_cursor("ethereum") == 12400
 
 
+def test_technical_snapshot(tmp_path):
+    with Storage(tmp_path / "test.db") as db:
+        assert db.latest_technical_snapshot("BTCUSDT") is None
+        db.insert_technical_snapshot({
+            "symbol": "BTCUSDT", "current_price": 85000.0, "support": 75000.0,
+            "resistance": 88000.0, "sma": 80000.0, "trend": "yükseliş",
+            "volatility_daily_stddev": 0.02, "distance_to_support_pct": 0.13,
+            "is_above_support": True, "is_near_support": False,
+            "distance_to_resistance_pct": 0.034, "is_near_resistance": True,
+            "observed_at": _now(),
+        })
+        snap = db.latest_technical_snapshot("BTCUSDT")
+        assert snap["trend"] == "yükseliş"
+        assert snap["is_above_support"] is True
+        assert snap["is_near_support"] is False
+
+
 def test_market_snapshot(tmp_path):
     with Storage(tmp_path / "test.db") as db:
         assert db.latest_market_snapshot("BTCUSDT") is None

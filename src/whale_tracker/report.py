@@ -56,10 +56,8 @@ def render_report(
     if signal_candidates:
         lines.append("Sinyal adayları (henüz işlem değil, öneri + gerekçe):")
         for candidate in signal_candidates:
-            lines.append(
-                f"  [{candidate['direction']}] güven={candidate['confidence']:.2f} "
-                f"(teknik/destek-direnç sinyali eksik olduğu için tavanlı)"
-            )
+            cap_note = "" if candidate.get("technical_available", True) else " (teknik sinyal eksik, tavanlı)"
+            lines.append(f"  [{candidate['direction']}] güven={candidate['confidence']:.2f}{cap_note}")
             for line in candidate["rationale"]:
                 lines.append(f"    - {line}")
         lines.append("")

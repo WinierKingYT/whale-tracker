@@ -8,14 +8,13 @@ here places, sizes, or approves a trade. That boundary is enforced by
 what this module does NOT import (no exchange trading API) and by
 README.md's own "Kritik sınır" section.
 
-KNOWN GAP, stated plainly rather than silently ignored: PROJECT-PLAN.md's
-worked example also requires "fiyat önemli bir desteğin üstünde" (price
-above a key support level) -- section D, "teknik piyasa yapısı". That
-signal source does not exist yet (no support/resistance/trend module has
-been built). Every candidate this module produces is therefore missing
-one of the plan's own required corroborating signals; confidence is
-capped accordingly (see _MAX_CONFIDENCE_WITHOUT_TECHNICAL) rather than
-overstating what's actually been checked.
+Technical corroboration (section D -- trend/destek/direnç) now comes from
+sources/technical.py's stored snapshot, added deliberately after the
+first version shipped without it (build order mattered more than
+completeness on day one -- see README.md's status history). If no
+technical snapshot exists yet (observe.py hasn't fetched one), this
+module falls back to the old capped-confidence behavior rather than
+silently treating the missing signal as neutral/favorable.
 """
 
 from __future__ import annotations
@@ -39,9 +38,35 @@ _NEGATIVE_NEWS_KEYWORDS = (
     "phishing", "scam", "rug pull",
 )
 
-# A candidate is capped below "yüksek güven" because the technical
-# (support/resistance) signal is structurally absent -- see module docstring.
+# Used only as a fallback cap when no technical snapshot exists yet (see
+# generate_candidates) -- normally superseded by the real technical component.
 _MAX_CONFIDENCE_WITHOUT_TECHNICAL = 0.75
+
+
+def _score_technical(technical: dict[str, Any] | None, direction: str) -> tuple[float, str]:
+    """Score how much the technical picture corroborates `direction`.
+    Weight (0.25) matches onchain_flow's 0.4 + funding's 0.25 + sentiment's
+    0.15 scale -- technical is a real, not token, contributor now."""
+    if technical is None:
+        return 0.0, "UYARI: teknik anlık görüntü henüz yok (ilk çalıştırma?) -- bu bileşen eksik"
+
+    trend = technical["trend"]
+    if direction == "accumulation":
+        if not technical["is_above_support"]:
+            return 0.0, f"fiyat ${technical['support']:,.0f} desteğinin ALTINDA -- birikim tezini zayıflatıyor"
+        score = 0.15 if trend != "düşüş" else 0.05
+        detail = f"fiyat ${technical['support']:,.0f} desteğinin üstünde (trend: {trend})"
+        if technical["is_near_support"]:
+            score += 0.10
+            detail += ", desteğe yakın -- klasik giriş bölgesi"
+        return score, detail
+    else:  # distribution
+        score = 0.15 if trend != "yükseliş" else 0.05
+        detail = f"trend: {trend}"
+        if technical["is_near_resistance"]:
+            score += 0.10
+            detail += f", ${technical['resistance']:,.0f} direncine yakın -- klasik dağıtım bölgesi"
+        return score, detail
 
 
 def _aggregate_exchange_flow(storage: Any, *, hours: int) -> dict[str, float]:
@@ -91,6 +116,7 @@ def generate_candidates(storage: Any, *, flow_window_hours: int = 24) -> list[di
     flow = _aggregate_exchange_flow(storage, hours=flow_window_hours)
     market = storage.latest_market_snapshot("BTCUSDT")
     sentiment = storage.latest_sentiment_snapshot("fear_greed")
+    technical = storage.latest_technical_snapshot("BTCUSDT")
     negative_news, negative_headline = _has_recent_negative_news(storage.recent_headlines(limit=30))
 
     if market is None:
@@ -145,16 +171,23 @@ def generate_candidates(storage: Any, *, flow_window_hours: int = 24) -> list[di
         else:
             rationale.append("son başlıklarda olumsuz haber tespit edilmedi")
 
-        components["technical"] = 0.0  # structurally absent, see module docstring
-        rationale.append("UYARI: fiyat/destek-direnç sinyali henüz yok -- bu bileşen eksik")
+        technical_score, technical_detail = _score_technical(technical, direction)
+        components["technical"] = technical_score
+        rationale.append(technical_detail)
 
-        confidence = min(sum(components.values()), _MAX_CONFIDENCE_WITHOUT_TECHNICAL)
+        confidence = sum(components.values())
+        if technical is None:
+            # No real technical component this run -- keep the old
+            # honesty cap rather than let the other three alone imply
+            # more confidence than was actually checked.
+            confidence = min(confidence, _MAX_CONFIDENCE_WITHOUT_TECHNICAL)
         candidates.append({
             "direction": direction,
-            "confidence": round(confidence, 3),
+            "confidence": round(min(confidence, 1.0), 3),
             "components": components,
             "rationale": rationale,
             "flow": flow,
+            "technical_available": technical is not None,
             "generated_at": datetime.now(UTC).isoformat(),
         })
 

@@ -17,6 +17,7 @@ from whale_tracker.sources.classify import classify_top_events
 from whale_tracker.sources.news import NewsFeedError, fetch_headlines
 from whale_tracker.sources.onchain import OnchainScanError, scan_new_transfers
 from whale_tracker.sources.sentiment import FearGreedError, fetch_fear_greed
+from whale_tracker.sources.technical import TechnicalDataError, fetch_technical_snapshot
 from whale_tracker.storage import Storage
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "whale_tracker.db"
@@ -53,6 +54,12 @@ def run_once(
             print(f"[uyarı] Haber akışı alınamadı: {error}", file=sys.stderr)
             new_headlines = []
 
+        try:
+            technical = fetch_technical_snapshot("BTCUSDT")
+            db.insert_technical_snapshot(technical)
+        except TechnicalDataError as error:
+            print(f"[uyarı] Teknik veri alınamadı: {error}", file=sys.stderr)
+
         # Kademe 1: classify only the largest few events (cost/latency
         # bounded -- see sources/classify.py). A classification failure for
         # any one event is skipped, never fails the run.
@@ -63,10 +70,9 @@ def run_once(
             db.insert_classification(event["tx_hash"], event["log_index"], classification, classified_at)
             event["classification"] = classification
 
-        # Aşama 2, Sinyal üretici: corroborate the accumulated signals into
-        # scored candidates. Still no trading -- see signal.py's own
-        # docstring for what's covered and what's structurally missing
-        # (no technical/support-resistance signal yet).
+        # Aşama 2, Sinyal üretici: corroborate the accumulated signals
+        # (onchain flow, funding, sentiment, news, technical) into scored
+        # candidates. Still no trading -- see signal.py's own docstring.
         candidates = generate_candidates(db)
         for candidate in candidates:
             db.insert_signal_candidate(candidate)
