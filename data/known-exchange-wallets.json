@@ -44,7 +44,8 @@
       "wallets": [
         {"label": "Coinbase 1", "address": "0x71660c4005ba85c37ccec55d0c4493e66fe775d3"},
         {"label": "Coinbase 23", "address": "0xddfabcdc4d8ffc6d5beaf154f18b778f892a0740"},
-        {"label": "Coinbase 44", "address": "0xb5d85cbf7cb3ee0d56b3bb207d5fc4b82f43f511"}
+        {"label": "Coinbase 44", "address": "0xb5d85cbf7cb3ee0d56b3bb207d5fc4b82f43f511"},
+        {"label": "Coinbase 10", "address": "0xa9d1e08c7793af67e9d92fe308d5697fb81d3e43", "note": "found via our own live scan (an $8.3M USDC transfer), not a research search -- confirmed against Etherscan directly. This is the intended feedback loop: real observed data drives which addresses get identified next."}
       ]
     },
     "kraken": {
@@ -55,6 +56,12 @@
         {"label": "Kraken 4", "address": "0x267be1c1d684f78cb4f6a176c4911b741e4ffdc0"}
       ]
     }
+  },
+  "notable_non_exchange_entities": {
+    "note": "Not exchanges, but real labeled 'big player' addresses found via our own live scan output -- large funds/institutions moving stablecoins are still whale signal per PROJECT-PLAN.md's own definition ('buyuk oyuncularin hareketleri'), just not the specific 'exchange accumulation/distribution' signal in section 3A.",
+    "entities": [
+      {"label": "Abraxas Capital Management: Heka Funds", "address": "0xb99a2c4c1c4f1fc27150681b740396f6ce1cbcf5", "type": "investment manager", "note": "moved $25-32M in USDT/USDC across several observed transfers, appears in a chain with two other addresses (0xa188eec8..., 0xee7ae85f...) that are likely related wallets of the same entity, not yet individually confirmed"}
+    ]
   },
   "excluded_or_deferred": {
     "okx": "Label cloud only showed an 'okx-labs' entry (11 accounts) -- does not look like their main exchange wallets. Not verified, not included.",

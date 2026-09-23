@@ -75,9 +75,10 @@ def _rpc(method: str, params: list[Any], retries: int = 3) -> Any:
 
 
 def _load_known_wallets() -> dict[str, str]:
-    """Return {lowercase_address: exchange_name} for every wallet in
-    data/known-exchange-wallets.json (only the 'exchanges' section --
-    excluded_or_deferred entries have no addresses to load)."""
+    """Return {lowercase_address: label} for every wallet in
+    data/known-exchange-wallets.json -- both the 'exchanges' section and
+    'notable_non_exchange_entities' (funds/institutions found via our own
+    scan output; excluded_or_deferred entries have no addresses to load)."""
     if not _WALLETS_PATH.is_file():
         return {}
     payload = json.loads(_WALLETS_PATH.read_text(encoding="utf-8"))
@@ -85,6 +86,8 @@ def _load_known_wallets() -> dict[str, str]:
     for exchange_name, entry in payload.get("exchanges", {}).items():
         for wallet in entry.get("wallets", []):
             lookup[wallet["address"].lower()] = exchange_name
+    for entity in payload.get("notable_non_exchange_entities", {}).get("entities", []):
+        lookup[entity["address"].lower()] = entity["label"]
     return lookup
 
 
