@@ -55,6 +55,19 @@
         {"label": "Kraken 3", "address": "0xe853c56864a2ebe4576a807d26fdc4a0ada51919", "note": "one search result claimed 801,052 ETH here; live Etherscan fetch showed 0.057 ETH -- that figure was stale/wrong. Confirms: never hardcode a balance, only the address is durable"},
         {"label": "Kraken 4", "address": "0x267be1c1d684f78cb4f6a176c4911b741e4ffdc0"}
       ]
+    },
+    "okx": {
+      "structure": "OKX names several addresses 'OKX: Hot Wallet N', but the name alone does not mean main custody -- 'Hot Wallet' and 'Hot Wallet 2' are themselves Etherscan-tagged 'Deposit Address' with near-zero balance (funded by 'OKX 3'), while 'Hot Wallet 3' and 'Hot Wallet 5' are the real, large, currently-active main wallets. Found via web search, each individually verified live on Etherscan 2026-09-23 (not the /accounts/label/okx page, which is Cloudflare-gated in this session's browser and never loaded).",
+      "wallets": [
+        {"label": "OKX: Hot Wallet 3", "address": "0xa9ac43f5b5e38155a288d1a01d2cbc4478e14573", "note": "verified live: 39,348 ETH (~$104.5M) + >211 tokens, latest tx 2 mins ago at check time, 1.77M total txs, funded by per-user deposit sweeps ('OKX Dep: 0x...') -- this is the real consolidation wallet"},
+        {"label": "OKX: Hot Wallet 5", "address": "0x559432e18b281731c054cd703d4b49872be4ed53", "note": "verified live: >$227M in >212 tokens (stablecoin-heavy), latest tx 10 secs ago at check time, 7.6M total txs"}
+      ]
+    },
+    "bybit": {
+      "structure": "main hot wallet found via web search, individually verified live on Etherscan 2026-09-23 (not the /accounts/label/bybit page, Cloudflare-gated in this session). A second candidate ('Hot Wallet 2', a Safe multisig) was checked and excluded -- near-zero balance, tag sourced from a third-party ('hildobby compilation') rather than Etherscan's own primary tag.",
+      "wallets": [
+        {"label": "Bybit: Hot Wallet", "address": "0xf89d7b9c864f589bbf53a82105107622b35eaa40", "note": "verified live: 9,400 ETH (~$25M) + >$52.4M in >401 tokens, latest tx 6 secs ago at check time, 10M total txs, active 5+ years"}
+      ]
     }
   },
   "notable_non_exchange_entities": {
@@ -76,14 +89,14 @@
     ]
   },
   "excluded_or_deferred": {
-    "okx": "Label cloud only showed an 'okx-labs' entry (11 accounts) -- does not look like their main exchange wallets. Not verified, not included.",
-    "bybit": "Label cloud only showed a 'bybit-exploit' entry (77 accounts) -- appears to be hack-incident-related addresses, not their main exchange wallets. Not verified, not included.",
-    "huobi_htx": "Not researched yet."
+    "huobi_htx": "Researched 2026-09-23, still excluded. HTX's numbered addresses ('HTX 8', 'HTX 34', 'HTX 80', ...) don't follow OKX/Bybit's 'Hot Wallet N' convention -- individually checked several: all either Etherscan-tagged 'Deposit Address' or currently near-zero balance with no transactions in 180+ days (drained/rotated out, not a live main wallet). No genuine large-balance, currently-active HTX address surfaced via web search in this pass. Needs a different research method (e.g. checking USDT/USDC top-holder lists for an HTX-tagged entry) than what worked for OKX/Bybit -- deferred, not fabricated."
   },
   "known_false_positive_traps": [
     "Substring-matching 'binance' (or any exchange name) against a label/nameTag field catches OTHER platforms' individual deposit wallets INTO that exchange (e.g. 'Bilaxy: Binance Dep: 0x...', 'Alameda Research: Binance Deposit') -- these are not the exchange's own wallets. This is how the eth-labels dataset's 5102 'binance' matches were almost entirely false positives. Always verify against the exchange's own primary label page, not a substring match.",
     "'0x: Coinbase Wallet Proxy' is a 0x-protocol smart contract, unrelated to Coinbase the company -- a naming coincidence, not a Coinbase wallet.",
     "A search result's stated wallet balance can be badly stale (Kraken 3 was quoted at 801,052 ETH in one search snippet; the live Etherscan value was 0.057 ETH). Balances are not durable facts -- only addresses/labels are worth recording here; always fetch balances live at run time.",
-    "A wallet's own dedicated Etherscan label page (/accounts/label/<name>) is not always the right list for a given exchange -- Kraken's page returns per-user deposit addresses, not the main custody wallets, which had to be found via general search instead."
+    "A wallet's own dedicated Etherscan label page (/accounts/label/<name>) is not always the right list for a given exchange -- Kraken's page returns per-user deposit addresses, not the main custody wallets, which had to be found via general search instead.",
+    "An address literally named 'Exchange: Hot Wallet N' is not guaranteed to be a main custody wallet -- OKX's own 'Hot Wallet' and 'Hot Wallet 2' are Etherscan-tagged 'Deposit Address' with near-zero balance despite the name; always check the live balance AND Etherscan's own secondary tag ('Deposit Address' vs plain 'Exchange'), not just the label text.",
+    "In this session, etherscan.io's /accounts/label/<slug> listing pages were Cloudflare-gated ('Just a moment...', never resolved after repeated waits/retries) while individual /address/<addr> pages loaded normally -- when the label-listing approach that worked in an earlier session stops working, fall back to web search for candidate addresses and verify each individually, don't conclude the exchange has no findable wallets."
   ]
 }
