@@ -24,9 +24,17 @@ separate, later, not-yet-built phase; no buy/sell output happens here."""
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from typing import Any
+
+# Windows pops a visible console window for a console-subsystem
+# executable launched via subprocess even with capture_output=True --
+# this call can run every scheduled cycle (via analysis.py/proposal.py),
+# so a flashing window would be constant and disruptive.
+# CREATE_NO_WINDOW suppresses it; only defined on Windows.
+_NO_WINDOW_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 
 _TIMEOUT_S = 90
 
@@ -75,7 +83,7 @@ def _call_claude(prompt: str, *, model: str = "sonnet", system_prompt: str = _SY
     ]
     try:
         completed = subprocess.run(
-            command, capture_output=True, text=True, timeout=_TIMEOUT_S,
+            command, capture_output=True, text=True, timeout=_TIMEOUT_S, creationflags=_NO_WINDOW_FLAGS,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise AnalysisError("claude CLI invocation failed") from error
