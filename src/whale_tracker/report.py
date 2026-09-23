@@ -32,7 +32,14 @@ def _format_event(event: dict[str, Any]) -> str:
     if event.get("to_known_exchange"):
         tags.append(f"to={event['to_known_exchange']}")
     tag_str = f" [{', '.join(tags)}]" if tags else ""
-    return f"  blok {event['block_number']}: {event['token']} ${event['amount_usd_estimate']:,.0f}{tag_str}"
+    line = f"  blok {event['block_number']}: {event['token']} ${event['amount_usd_estimate']:,.0f}{tag_str}"
+    classification = event.get("classification")
+    if classification:
+        line += (
+            f"\n    → Kademe 1 [{classification['significance']}, "
+            f"güven={classification['confidence']:.2f}]: {classification['interpretation']}"
+        )
+    return line
 
 
 def render_report(

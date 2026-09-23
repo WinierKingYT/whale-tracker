@@ -2,7 +2,7 @@ from whale_tracker import observe
 
 
 def test_log_file_appends_with_timestamp_header(tmp_path, monkeypatch):
-    def fake_run_once(db_path, *, min_usd):
+    def fake_run_once(db_path, *, min_usd, classify_limit):
         return "sahte rapor içeriği"
 
     monkeypatch.setattr(observe, "run_once", fake_run_once)

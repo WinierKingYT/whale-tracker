@@ -12,15 +12,19 @@ from pathlib import Path
 
 from whale_tracker.report import render_report
 from whale_tracker.sources.binance import BinanceMarketDataError, fetch_market_snapshot
+from whale_tracker.sources.classify import classify_top_events
 from whale_tracker.sources.news import NewsFeedError, fetch_headlines
 from whale_tracker.sources.onchain import OnchainScanError, scan_new_transfers
 from whale_tracker.sources.sentiment import FearGreedError, fetch_fear_greed
 from whale_tracker.storage import Storage
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "whale_tracker.db"
+DEFAULT_CLASSIFY_LIMIT = 5
 
 
-def run_once(db_path: Path = DEFAULT_DB_PATH, *, min_usd: float = 1_000_000.0) -> str:
+def run_once(
+    db_path: Path = DEFAULT_DB_PATH, *, min_usd: float = 1_000_000.0, classify_limit: int = DEFAULT_CLASSIFY_LIMIT,
+) -> str:
     with Storage(db_path) as db:
         try:
             market = fetch_market_snapshot("BTCUSDT")
@@ -48,6 +52,16 @@ def run_once(db_path: Path = DEFAULT_DB_PATH, *, min_usd: float = 1_000_000.0) -
             print(f"[uyarı] Haber akışı alınamadı: {error}", file=sys.stderr)
             new_headlines = []
 
+        # Kademe 1: classify only the largest few events (cost/latency
+        # bounded -- see sources/classify.py). A classification failure for
+        # any one event is skipped, never fails the run.
+        classifications = classify_top_events(onchain_events, limit=classify_limit) if onchain_events else {}
+        classified_at = datetime.now(UTC).isoformat()
+        for index, classification in classifications.items():
+            event = onchain_events[index]
+            db.insert_classification(event["tx_hash"], event["log_index"], classification, classified_at)
+            event["classification"] = classification
+
         return render_report(
             onchain_events=onchain_events,
             market_snapshot=market,
@@ -65,8 +79,12 @@ def main() -> int:
         help="Append the report here (with a timestamp header) instead of only printing it. "
              "Needed for scheduled runs (Task Scheduler/cron), where stdout is otherwise lost.",
     )
+    parser.add_argument(
+        "--classify-limit", type=int, default=DEFAULT_CLASSIFY_LIMIT,
+        help="Kademe 1 sınıflandırmasını yalnızca en büyük N olaya uygula (maliyet/gecikme sınırlı). 0 = kapalı.",
+    )
     args = parser.parse_args()
-    report = run_once(args.db, min_usd=args.min_usd)
+    report = run_once(args.db, min_usd=args.min_usd, classify_limit=args.classify_limit)
     print(report)
     if args.log_file:
         args.log_file.parent.mkdir(parents=True, exist_ok=True)

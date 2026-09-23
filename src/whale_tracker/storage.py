@@ -25,6 +25,16 @@ CREATE TABLE IF NOT EXISTS onchain_events (
 );
 CREATE INDEX IF NOT EXISTS idx_onchain_block ON onchain_events(block_number);
 
+CREATE TABLE IF NOT EXISTS event_classifications (
+    tx_hash TEXT NOT NULL,
+    log_index INTEGER NOT NULL,
+    significance TEXT NOT NULL,
+    interpretation TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    classified_at TEXT NOT NULL,
+    PRIMARY KEY (tx_hash, log_index)
+);
+
 CREATE TABLE IF NOT EXISTS scan_cursor (
     source TEXT PRIMARY KEY,
     last_block_scanned INTEGER NOT NULL,
@@ -138,6 +148,18 @@ class Storage:
             VALUES (:source, :value, :label, :raw_json, :observed_at)
             """,
             payload,
+        )
+        self._conn.commit()
+
+    def insert_classification(self, tx_hash: str, log_index: int, classification: dict[str, Any], observed_at: str) -> None:
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO event_classifications
+                (tx_hash, log_index, significance, interpretation, confidence, classified_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (tx_hash, log_index, classification["significance"], classification["interpretation"],
+             classification["confidence"], observed_at),
         )
         self._conn.commit()
 
