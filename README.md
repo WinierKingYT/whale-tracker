@@ -25,22 +25,26 @@ kullanıyor. Bilinen borsa cüzdanları `data/known-exchange-wallets.json`'da
 
 ## Durum
 
-**Aşama: Gözlemci (1/6) — çalışıyor ve zamanlanmış.** Dört kaynak da uçtan
-uca test edildi, gerçek veriyle: Binance piyasa verisi, Fear&Greed, haberler
-(CoinDesk+Cointelegraph RSS), ve zincir üstü büyük USDT/USDC transferleri
-(eşik-üstü, bilinen cüzdan/kurum/DEX/işaretlenmiş adreslerle çapraz
-kontrollü, kategoriye göre gruplu rapor). İşlem mantığı yok, risk yok —
-sadece topla + rapor et. Windows Task Scheduler'a kayıtlı, her 15 dakikada
-bir otomatik çalışıyor (`data/observer.log`).
+**Aşama: Gözlemci tamamlandı (1/6), Sinyal üretici başladı (2/6).**
+Dört kaynak uçtan uca test edildi ve zamanlanmış çalışıyor (Windows Task
+Scheduler, 15 dakikada bir, `data/observer.log`): Binance piyasa verisi,
+Fear&Greed, haberler (CoinDesk+Cointelegraph RSS), zincir üstü büyük
+USDT/USDC transferleri (bilinen cüzdan/kurum/DEX/işaretlenmiş adreslerle
+çapraz kontrollü). Kademe 1 (Hermes ile en büyük olayların ucuz
+sınıflandırması) çalışıyor. Sinyal üretici ilk hali çalışıyor: 24s net
+borsa akışı + funding + Fear&Greed + haber taraması, birbirini doğrulayan
+skorlu adaylar üretiyor (`signal.py`) — **ama teknik/destek-direnç sinyali
+henüz yok, bu yüzden her aday 0.75 güven tavanında dondurulmuş, dürüstçe
+belirtiliyor.** Hâlâ işlem yok, risk yok.
 
-**Sıradaki:** Bilinen cüzdan listesini genişletmeye devam (hâlâ çoğu
-transfer "bilinmeyen"), birkaç günlük gerçek log biriktirip gözden geçirme,
-Kademe 1 (ucuz-model sınıflandırma) tasarımına başlama.
+**Sıradaki:** Birkaç günlük gerçek sinyal-aday verisi biriktirip gözden
+geçirme; teknik/destek-direnç sinyalini eklemek (Aşama D, henüz yok);
+bilinen cüzdan listesini genişletmeye devam.
 
 | Aşama | Durum |
 |---|---|
-| 1. Gözlemci | ✅ çalışıyor (genişletiliyor) |
-| 2. Sinyal üretici | beklemede |
+| 1. Gözlemci | ✅ tamamlandı, zamanlanmış çalışıyor |
+| 2. Sinyal üretici | 🚧 ilk hali çalışıyor (teknik sinyal eksik) |
 | 3. Paper trading | beklemede |
 | 4. Değerlendirme | beklemede |
 | 5. Yarı otomatik (onaylı) | beklemede |
