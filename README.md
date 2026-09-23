@@ -25,14 +25,17 @@ kullanıyor. Bilinen borsa cüzdanları `data/known-exchange-wallets.json`'da
 
 ## Durum
 
-**Aşama: Gözlemci (1/6) — çalışıyor, genişletilecek.** Üç kaynak da uçtan
-uca test edildi, gerçek veriyle: Binance piyasa verisi, Fear&Greed, ve
-zincir üstü büyük USDT/USDC transferleri (eşik-üstü, bilinen cüzdanlarla
-çapraz kontrollü). İşlem mantığı yok, risk yok — sadece topla + rapor et.
+**Aşama: Gözlemci (1/6) — çalışıyor ve zamanlanmış.** Dört kaynak da uçtan
+uca test edildi, gerçek veriyle: Binance piyasa verisi, Fear&Greed, haberler
+(CoinDesk+Cointelegraph RSS), ve zincir üstü büyük USDT/USDC transferleri
+(eşik-üstü, bilinen cüzdan/kurum/DEX/işaretlenmiş adreslerle çapraz
+kontrollü, kategoriye göre gruplu rapor). İşlem mantığı yok, risk yok —
+sadece topla + rapor et. Windows Task Scheduler'a kayıtlı, her 15 dakikada
+bir otomatik çalışıyor (`data/observer.log`).
 
-**Sıradaki:** Bilinen cüzdan listesini genişletmek (çoğu transfer şu an
-"bilinmeyen cüzdan" çıkıyor), haber/RSS kaynağını eklemek, zamanlanmış
-çalıştırma (cron/Task Scheduler).
+**Sıradaki:** Bilinen cüzdan listesini genişletmeye devam (hâlâ çoğu
+transfer "bilinmeyen"), birkaç günlük gerçek log biriktirip gözden geçirme,
+Kademe 1 (ucuz-model sınıflandırma) tasarımına başlama.
 
 | Aşama | Durum |
 |---|---|
