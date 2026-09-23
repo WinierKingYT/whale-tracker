@@ -76,9 +76,11 @@ def _rpc(method: str, params: list[Any], retries: int = 3) -> Any:
 
 def _load_known_wallets() -> dict[str, str]:
     """Return {lowercase_address: label} for every wallet in
-    data/known-exchange-wallets.json -- both the 'exchanges' section and
-    'notable_non_exchange_entities' (funds/institutions found via our own
-    scan output; excluded_or_deferred entries have no addresses to load)."""
+    data/known-exchange-wallets.json. Covers exchanges, notable non-exchange
+    entities (funds/institutions), DEX infrastructure (tagged "DEX: ..." --
+    NOT whale signal, see the file's own note), and flagged addresses
+    (tagged "⚠ FLAGGED: ..." -- connected to reported bad activity).
+    excluded_or_deferred entries have no addresses to load."""
     if not _WALLETS_PATH.is_file():
         return {}
     payload = json.loads(_WALLETS_PATH.read_text(encoding="utf-8"))
@@ -88,6 +90,10 @@ def _load_known_wallets() -> dict[str, str]:
             lookup[wallet["address"].lower()] = exchange_name
     for entity in payload.get("notable_non_exchange_entities", {}).get("entities", []):
         lookup[entity["address"].lower()] = entity["label"]
+    for contract in payload.get("dex_infrastructure", {}).get("contracts", []):
+        lookup[contract["address"].lower()] = f"DEX: {contract['label']}"
+    for flagged in payload.get("flagged_addresses", {}).get("entries", []):
+        lookup[flagged["address"].lower()] = f"⚠ FLAGGED: {flagged['reason'][:60]}"
     return lookup
 
 

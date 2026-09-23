@@ -63,6 +63,18 @@
       {"label": "Abraxas Capital Management: Heka Funds", "address": "0xb99a2c4c1c4f1fc27150681b740396f6ce1cbcf5", "type": "investment manager", "note": "moved $25-32M in USDT/USDC across several observed transfers, appears in a chain with two other addresses (0xa188eec8..., 0xee7ae85f...) that are likely related wallets of the same entity, not yet individually confirmed"}
     ]
   },
+  "dex_infrastructure": {
+    "note": "NOT whale signal -- these are DEX contracts. A large transfer to/from one of these is normal trading/routing activity, not a 'big player accumulating or distributing' signal (section 3B of PROJECT-PLAN.md is about exchange/market structure, not raw DEX volume). Tag these separately so the report can distinguish or filter them, rather than reporting DEX swap traffic as if it were exchange/whale flow.",
+    "contracts": [
+      {"label": "Uniswap V4: Pool Manager", "address": "0x000000000004444c5dc75cb358380d2e3de08a90", "note": "found via our own scan: appeared 4 times, $10M total, in one run -- verified against Etherscan directly"}
+    ]
+  },
+  "flagged_addresses": {
+    "note": "Addresses our own scan surfaced that are connected to reported bad activity. Not exchanges, not whales to track positively -- recorded so the report can flag them, not silently treat them the same as a legitimate large holder.",
+    "entries": [
+      {"address": "0xcf009f798e66d82161ec4dcc5e975398cdd6357a", "reason": "Etherscan shows this address was \"Funded By: Fake_Phishing4738207\" -- moved $22M in stablecoins across observed transfers. Not confirmed as itself malicious (could be a victim or an unrelated later holder), but the funding-source label is a real, documented red flag worth surfacing, not ignoring."}
+    ]
+  },
   "excluded_or_deferred": {
     "okx": "Label cloud only showed an 'okx-labs' entry (11 accounts) -- does not look like their main exchange wallets. Not verified, not included.",
     "bybit": "Label cloud only showed a 'bybit-exploit' entry (77 accounts) -- appears to be hack-incident-related addresses, not their main exchange wallets. Not verified, not included.",
