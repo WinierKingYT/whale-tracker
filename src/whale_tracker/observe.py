@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from whale_tracker.report import render_report
@@ -59,8 +60,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="whale-tracker Gözlemci -- tek geçiş")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--min-usd", type=float, default=1_000_000.0)
+    parser.add_argument(
+        "--log-file", type=Path, default=None,
+        help="Append the report here (with a timestamp header) instead of only printing it. "
+             "Needed for scheduled runs (Task Scheduler/cron), where stdout is otherwise lost.",
+    )
     args = parser.parse_args()
-    print(run_once(args.db, min_usd=args.min_usd))
+    report = run_once(args.db, min_usd=args.min_usd)
+    print(report)
+    if args.log_file:
+        args.log_file.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(UTC).isoformat()
+        with args.log_file.open("a", encoding="utf-8") as handle:
+            handle.write(f"\n----- {timestamp} -----\n{report}\n")
     return 0
 
 
