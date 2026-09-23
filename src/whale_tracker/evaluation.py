@@ -81,7 +81,15 @@ def evaluate_paper_trading(storage: Any) -> dict[str, Any]:
 
     first_position = min(positions, key=lambda p: p["opened_at"])
     btc_start = storage.market_snapshot_near("BTCUSDT", first_position["opened_at"])
-    btc_end = storage.latest_market_snapshot("BTCUSDT")
+    # Anchored to the last position's own closed_at, not "now" -- observe.py
+    # inserts a fresh BTCUSDT snapshot on every scheduled cycle regardless
+    # of trading activity, so latest_market_snapshot() would keep pulling
+    # in post-close BTC movement into this comparison the longer the
+    # scheduler runs after the strategy went quiet. "Same period" (this
+    # module's own stated definition) means "first position opened to
+    # last position closed," not "...to whenever this report is run."
+    # Found by code review, not by a real failure yet.
+    btc_end = storage.market_snapshot_near("BTCUSDT", closed[-1]["closed_at"])
     if btc_start and btc_end and btc_start["mark_price"]:
         btc_hold_return_pct = round((btc_end["mark_price"] - btc_start["mark_price"]) / btc_start["mark_price"], 4)
         beats_btc_hold = strategy_return_pct > btc_hold_return_pct

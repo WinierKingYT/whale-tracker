@@ -101,8 +101,13 @@ def test_btc_hold_comparison_uses_btcusdt_market_snapshots_not_position_price(tm
         # BTC market data moves +10% over the window -- deliberately
         # different from the position's own entry/exit price, to prove
         # the comparison reads market_snapshots, not the position itself.
+        # The end snapshot is seeded at-or-before the position's own
+        # closed_at (51 min ago vs. closed 50 min ago), not near "now" --
+        # a later, unrelated snapshot (e.g. from a scheduler cycle after
+        # trading went quiet) must not leak into this comparison.
         _seed_btc_price(db, 70000.0, minutes_ago=100)
-        _seed_btc_price(db, 77000.0, minutes_ago=1)
+        _seed_btc_price(db, 77000.0, minutes_ago=51)
+        _seed_btc_price(db, 90000.0, minutes_ago=1)  # after close -- must be ignored
         _open_and_close(db, entry_price=70000.0, exit_price=70700.0, status="take_profit",
                          opened_minutes_ago=100, closed_minutes_ago=50)
 

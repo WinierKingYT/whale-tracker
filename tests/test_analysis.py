@@ -91,6 +91,26 @@ def test_call_claude_raises_on_error_envelope(monkeypatch):
         analysis._call_claude("irrelevant prompt")
 
 
+def test_call_claude_raises_cleanly_when_envelope_is_not_a_json_object(monkeypatch):
+    """Regression: json.loads succeeds on any valid JSON (null, a bare
+    string, a list), not just objects. A non-dict envelope used to reach
+    envelope.get(...) and raise an uncaught AttributeError instead of
+    AnalysisError -- which would have escaped observe.py's except
+    AnalysisError/ProposalError blocks entirely and crashed the whole run.
+    Found by code review, not by a real failure yet."""
+    for bad_stdout in ("null", '"just a string"', "[1, 2, 3]", "42"):
+        class _FakeCompleted:
+            returncode = 0
+            stdout = bad_stdout
+            stderr = ""
+
+        monkeypatch.setattr(analysis, "_discover_claude", lambda: "/fake/claude")
+        monkeypatch.setattr(analysis.subprocess, "run", lambda *a, **k: _FakeCompleted())
+
+        with pytest.raises(analysis.AnalysisError):
+            analysis._call_claude("irrelevant prompt")
+
+
 def test_call_claude_raises_when_executable_missing(monkeypatch):
     monkeypatch.setattr(analysis, "_discover_claude", lambda: None)
     with pytest.raises(analysis.AnalysisError):

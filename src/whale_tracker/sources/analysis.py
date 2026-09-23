@@ -85,6 +85,15 @@ def _call_claude(prompt: str, *, model: str = "sonnet", system_prompt: str = _SY
         envelope = json.loads(completed.stdout)
     except json.JSONDecodeError as error:
         raise AnalysisError(f"claude CLI returned non-JSON envelope: {completed.stdout[:200]}") from error
+    if not isinstance(envelope, dict):
+        # json.loads succeeds on any valid JSON (null, a string, a list, a
+        # bare number), not just objects -- the CLI's envelope shape isn't
+        # a contract this codebase controls, so a non-dict result must be
+        # treated as unavailable, not assumed to support .get() (an
+        # AttributeError here would escape as neither AnalysisError nor
+        # ProposalError and crash the whole observe.py run, defeating the
+        # "AI calls fail gracefully" contract every caller relies on).
+        raise AnalysisError(f"claude CLI envelope was not a JSON object: {completed.stdout[:200]}")
     if envelope.get("is_error"):
         raise AnalysisError(f"claude CLI reported an error result: {envelope.get('result')}")
     result = envelope.get("result")
