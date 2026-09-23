@@ -6,14 +6,36 @@
 
 ### 1. Bilinen borsa cüzdan adreslerini nereden alacağız?
 
-`dawsbot/eth-labels` — açık kaynak, ücretsiz, aktif bakımlı (115+ commit),
-Ethereum + çoklu EVM zinciri için 169k+ etiketli adres. Veri kökeni
-Etherscan'in kendi "Label Cloud"'u. Ücretsiz API (`eth-labels.com/swagger`)
-ve indirilebilir veri seti olarak mevcut. Binance dahil büyük borsalar
-etiketli. **Bunu kullanabiliriz — Arkham/Nansen'e ihtiyaç yok.**
+**Güncelleme (2026-09-23, doğrulama sonrası) — ilk cevap yanlıştı, düzeltildi.**
+`dawsbot/eth-labels`'ı önerdikten sonra gerçek veriyi indirip kontrol ettim
+(144k satırlık `accounts.csv`). Sonuç: **kullanışlı değil, en azından
+"binance" için.** "binance" geçen 5102 kayıt neredeyse tamamı yanlış
+pozitifti — başka platformların (Bilaxy, Alameda Research vb.) Binance'e
+para yatıran KENDİ kullanıcı cüzdanları, Binance'in kendi cüzdanları değil.
+Gerçek `label` alanında yalnızca "binance-charity" (34 kayıt) vardı, ana
+borsa cüzdanları hiç yoktu.
 
-Alternatif/yedek: Etherscan'in kendi Label Cloud sayfaları (web üzerinden,
-API anahtarı olmadan da taranabilir, ama resmi API daha temiz).
+**Gerçek kaynak: Etherscan'in kendi resmi etiket sayfaları**
+(`etherscan.io/accounts/label/<slug>`), doğrudan çekilip tek tek
+doğrulandı. Sonuç `data/known-exchange-wallets.json`'da:
+
+- **Binance, Bitfinex, Gemini**: temiz, küçük (6-7 adres) ana cüzdan
+  listeleri — doğrudan kullanılabilir.
+- **Coinbase**: web aramasıyla bulundu (Coinbase 1/23/44), ama tek bir
+  temiz etiket sayfası yok — daha eksik, ileride tamamlanmalı.
+- **Kraken**: **farklı bir yapı.** Etiket sayfası binlerce ayrı
+  "Kraken Dep: 0x..." kullanıcı-başına-depozito adresi döndürüyor (78.727
+  toplam), Binance gibi küçük bir ana-cüzdan seti değil. Bu borsa için
+  akış takibi farklı bir yaklaşım gerektiriyor — şimdilik ertelendi.
+- **OKX, Bybit**: label cloud'da bulunan girdiler ("okx-labs",
+  "bybit-exploit") ana cüzdanları temsil etmiyor gibi görünüyor,
+  doğrulanmadı, dahil edilmedi.
+
+**Ders:** Bir borsa adını herhangi bir label/nameTag alanında substring
+olarak aramak güvenilmez — başka platformların o borsaya giden kendi
+depozito cüzdanlarını yanlış pozitif olarak yakalıyor. Her zaman birincil
+kaynağa (Etherscan'in kendi etiket sayfası) karşı doğrulamak gerekiyor.
+Tam liste ve bilinen tuzaklar `data/known-exchange-wallets.json`'da.
 
 ### 2. "Büyük transfer" eşiği ne olmalı?
 
