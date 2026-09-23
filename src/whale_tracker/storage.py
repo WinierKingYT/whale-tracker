@@ -105,6 +105,20 @@ CREATE TABLE IF NOT EXISTS deep_analyses (
     corroboration_strength TEXT NOT NULL,
     generated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS final_proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_candidate_id INTEGER NOT NULL REFERENCES signal_candidates(id),
+    action TEXT NOT NULL,
+    reason TEXT,
+    max_position_size_pct REAL NOT NULL,
+    stop_loss_price REAL,
+    entry_rationale TEXT,
+    worst_case_scenario TEXT,
+    counter_arguments_json TEXT NOT NULL,
+    conviction TEXT,
+    generated_at TEXT NOT NULL
+);
 """
 
 
@@ -248,6 +262,24 @@ class Storage:
                 signal_candidate_id, analysis["assessment"], analysis["counter_argument"],
                 json.dumps(analysis["risk_flags"], ensure_ascii=False),
                 analysis["corroboration_strength"], generated_at,
+            ),
+        )
+        self._conn.commit()
+
+    def insert_final_proposal(self, signal_candidate_id: int, proposal: dict[str, Any], generated_at: str) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO final_proposals
+                (signal_candidate_id, action, reason, max_position_size_pct, stop_loss_price,
+                 entry_rationale, worst_case_scenario, counter_arguments_json, conviction, generated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                signal_candidate_id, proposal["action"], proposal["reason"],
+                proposal["max_position_size_pct"], proposal["stop_loss_price"],
+                proposal["entry_rationale"], proposal["worst_case_scenario"],
+                json.dumps(proposal["counter_arguments"], ensure_ascii=False),
+                proposal["conviction"], generated_at,
             ),
         )
         self._conn.commit()

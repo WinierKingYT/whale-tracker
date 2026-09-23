@@ -66,6 +66,22 @@ def render_report(
                 lines.append(f"      karşı senaryo: {analysis['counter_argument']}")
                 if analysis["risk_flags"]:
                     lines.append(f"      risk: {', '.join(analysis['risk_flags'])}")
+            proposal = candidate.get("final_proposal")
+            if proposal:
+                if proposal["action"] == "no_action":
+                    lines.append(f"    → Kademe 3: işlem yok -- {proposal['reason']}")
+                else:
+                    lines.append(
+                        f"    → Kademe 3 [kağıt üzerinde, kanaat={proposal['conviction']}]: "
+                        f"{proposal['entry_rationale']}"
+                    )
+                    lines.append(
+                        f"      stop-loss=${proposal['stop_loss_price']:,.0f}, "
+                        f"maks. pozisyon=%{proposal['max_position_size_pct']*100:.0f}"
+                    )
+                    lines.append(f"      en kötü senaryo: {proposal['worst_case_scenario']}")
+                    for counter in proposal["counter_arguments"]:
+                        lines.append(f"      karşı argüman: {counter}")
         lines.append("")
 
     lines.append("Piyasa (BTCUSDT):")

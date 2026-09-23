@@ -61,17 +61,17 @@ def _discover_claude() -> str | None:
     return shutil.which("claude") or shutil.which("claude.cmd") or shutil.which("claude.exe")
 
 
-def _call_claude(prompt: str) -> str:
+def _call_claude(prompt: str, *, model: str = "sonnet", system_prompt: str = _SYSTEM_PROMPT) -> str:
     executable = _discover_claude()
     if not executable:
         raise AnalysisError("claude CLI not found")
     command = [
         executable, "-p", prompt,
-        "--model", "sonnet",
+        "--model", model,
         "--output-format", "json",
         "--tools", "",
         "--strict-mcp-config",
-        "--system-prompt", _SYSTEM_PROMPT,
+        "--system-prompt", system_prompt,
     ]
     try:
         completed = subprocess.run(

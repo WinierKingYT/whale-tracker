@@ -13,6 +13,7 @@ from pathlib import Path
 from whale_tracker.report import render_report
 from whale_tracker.signal import generate_candidates
 from whale_tracker.sources.analysis import AnalysisError, generate_deep_analysis
+from whale_tracker.sources.proposal import ProposalError, generate_final_proposal
 from whale_tracker.sources.binance import BinanceMarketDataError, fetch_market_snapshot
 from whale_tracker.sources.classify import classify_top_events
 from whale_tracker.sources.news import NewsFeedError, fetch_headlines
@@ -83,13 +84,26 @@ def run_once(
             # this rare case (see sources/analysis.py's cost note). A
             # failure here is skipped, same non-fatal contract as Kademe 1.
             try:
-                analysis = generate_deep_analysis(candidate, {
+                deep_context = {
                     "market_snapshot": market,
                     "technical_snapshot": db.latest_technical_snapshot("BTCUSDT"),
                     "recent_headlines": new_headlines or db.recent_headlines(limit=5),
-                })
+                }
+                analysis = generate_deep_analysis(candidate, deep_context)
                 db.insert_deep_analysis(candidate_id, analysis, datetime.now(UTC).isoformat())
                 candidate["deep_analysis"] = analysis
+
+                # Kademe 3: only escalate to the rarest, most expensive tier
+                # when Kademe 2 itself already called this "strong" -- see
+                # sources/proposal.py's own docstring for the full gate
+                # (direction + stop-loss availability are checked there too).
+                if analysis["corroboration_strength"] == "strong":
+                    try:
+                        proposal = generate_final_proposal(candidate, analysis, deep_context)
+                        db.insert_final_proposal(candidate_id, proposal, datetime.now(UTC).isoformat())
+                        candidate["final_proposal"] = proposal
+                    except ProposalError as error:
+                        print(f"[uyarı] Kademe 3 öneri başarısız: {error}", file=sys.stderr)
             except AnalysisError as error:
                 print(f"[uyarı] Kademe 2 analiz başarısız: {error}", file=sys.stderr)
 

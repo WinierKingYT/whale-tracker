@@ -44,17 +44,25 @@ niteliksel derin analiz üretiyor — bağlam tutarlılığı, en güçlü karş
 senaryo, risk bayrakları; mekanik güven puanını değiştirmiyor, asla al/sat
 tavsiyesi üretmiyor. Kullanıcının kendi Claude Pro aboneliğinin paylaşımlı
 kotasını kullanıyor (~15K token/çağrı, ölçülmüş), ayrı bir API key
-gerekmiyor. Hâlâ işlem yok, risk yok.
+gerekmiyor. **Kademe 3** (`sources/proposal.py`), yalnızca Kademe 2'nin
+"strong" dediği adaylarda (en nadir/en pahalı katman) Claude Opus CLI ile
+nihai bir KAĞIT ÜZERİNDE işlem önerisi üretiyor — giriş gerekçesi, en kötü
+senaryo, karşı argümanlar. Pozisyon büyüklüğü (%1 sermaye tavanı) ve
+stop-loss fiyatı AI'ye bırakılmıyor, kod tarafında sabit kurallarla
+(section 7, "Değişmez Anayasa") hesaplanıyor. Yön yalnızca `accumulation`
+olduğunda öneri üretiliyor (henüz spot-long dışı kapsam yok); teknik
+anlık görüntü/destek seviyesi yoksa stop-loss hesaplanamıyor ve öneri hiç
+üretilmiyor. Hiçbir aşamada gerçek emir yok, gerçek para yok.
 
 **Sıradaki:** Birkaç günlük gerçek sinyal-aday verisi biriktirip gözden
-geçirme (artık Kademe 2 yorumuyla birlikte); bilinen cüzdan listesini
-genişletmeye devam; Kademe 3 (Opus/Fable, nihai öneri + karşı argüman)
-tasarımı, yalnızca karar anında.
+geçirme (artık Kademe 2/3 yorumuyla birlikte); bilinen cüzdan listesini
+genişletmeye devam; Aşama 3 (Paper trading — önerileri sahte parayla
+uygulayıp izleme) tasarımı.
 
 | Aşama | Durum |
 |---|---|
 | 1. Gözlemci | ✅ tamamlandı, zamanlanmış çalışıyor |
-| 2. Sinyal üretici | ✅ tüm 5 sinyal çalışıyor + Kademe 2 derin analiz, gerçek veriyle doğrulanmadı henüz |
+| 2. Sinyal üretici | ✅ 5 sinyal + Kademe 2 derin analiz + Kademe 3 kağıt öneri, gerçek veriyle doğrulanmadı henüz |
 | 3. Paper trading | beklemede |
 | 4. Değerlendirme | beklemede |
 | 5. Yarı otomatik (onaylı) | beklemede |

@@ -91,3 +91,24 @@ def test_signal_candidate_insert_returns_id_and_deep_analysis_links_to_it(tmp_pa
         ).fetchone()
         assert row["assessment"] == "test değerlendirme"
         assert row["corroboration_strength"] == "moderate"
+
+
+def test_final_proposal_links_to_signal_candidate(tmp_path):
+    with Storage(tmp_path / "test.db") as db:
+        candidate_id = db.insert_signal_candidate({
+            "direction": "accumulation", "confidence": 0.9,
+            "components": {}, "rationale": [], "generated_at": _now(),
+        })
+        db.insert_final_proposal(candidate_id, {
+            "action": "long_candidate", "reason": None,
+            "max_position_size_pct": 0.01, "stop_loss_price": 68600.0,
+            "entry_rationale": "test rationale", "worst_case_scenario": "test worst case",
+            "counter_arguments": ["a", "b"], "conviction": "high",
+        }, _now())
+
+        row = db._conn.execute(
+            "SELECT * FROM final_proposals WHERE signal_candidate_id = ?", (candidate_id,)
+        ).fetchone()
+        assert row["action"] == "long_candidate"
+        assert row["stop_loss_price"] == 68600.0
+        assert row["conviction"] == "high"
