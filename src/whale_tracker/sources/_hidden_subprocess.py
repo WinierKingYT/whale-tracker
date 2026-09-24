@@ -54,7 +54,19 @@ class _WindowHider:
     manager elsewhere."""
 
     _SW_HIDE = 0
-    _POLL_INTERVAL_S = 0.1
+    # Real 2026-09-24 case: even with this watcher running, the user still
+    # saw a brief flash on real Hermes calls -- the process-tree cleanup
+    # (run_hidden_and_reap's taskkill) was confirmed to leave nothing
+    # lingering, but that's a different guarantee from "never visible for
+    # even one frame." A poll-based hider is inherently a race against
+    # window creation; 0.1s was long enough for a fresh console to paint
+    # and be perceived before the next poll caught it. 0.02s doesn't
+    # eliminate the race (a true fix would need a Windows event hook,
+    # e.g. SetWinEventHook, reacting to window creation instead of
+    # polling for it) but cuts the exposure window 5x, which in practice
+    # is below the threshold of a noticeable flash for a console that's
+    # hidden within one or two repaints instead of several.
+    _POLL_INTERVAL_S = 0.02
 
     def __init__(self, title_substring: str) -> None:
         self._needle = title_substring.lower()

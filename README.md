@@ -173,14 +173,30 @@ yarar), (2) `register-task.ps1` artık `cmd /c ... 2>>data\observer-stderr.log`
 yakalanıyor (mevcut zamanlanmış görev bunu almak için yeniden
 kaydedilmeli: `.\scripts\register-task.ps1`).
 
-**Pencere sorunu kökten çözüldü** (4 denemeden sonra). Gerçek neden:
-`hermes.exe` kendi içinde ayrı bir `conhost.exe` ve kendi Python
+**Pencere sorunu büyük ölçüde çözüldü** (4 denemeden sonra), ama **tam
+sıfır değil** — bu ayrım önemli, o yüzden ikisini ayrı tutuyoruz. Gerçek
+neden: `hermes.exe` kendi içinde ayrı bir `conhost.exe` ve kendi Python
 yorumlayıcısını başlatıyordu — dıştaki çağrıya uygulanan
 `CREATE_NO_WINDOW`/`STARTUPINFO` bunu kapsamıyordu. Çözüm:
 `sources/_hidden_subprocess.py`'nin `run_hidden_and_reap()`'i her
 çağrıdan sonra **tüm süreç ağacını** (`taskkill /F /T`) zorla temizliyor;
 zamanlanmış görev de artık `wscript.exe` üzerinden tamamen gizli
-çalışıyor (`scripts/register-task.ps1`).
+çalışıyor (`scripts/register-task.ps1`). Bu, kalıcı/tekrar-tekrar-açılan
+pencere sorununu (ana problem) gerçekten çözdü — süreç ağacı her seferinde
+temiz kapanıyor, canlı doğrulandı.
+
+**Kalan iz: kısa bir yanıp-sönme, ara sıra.** 2026-09-24'te kullanıcı
+hâlâ ara sıra kısa bir pencere flaşı bildirdi (kalıcı değil, tekrar
+tekrar açılıp kapanmıyor — tek karelik bir görünüp kaybolma). Neden:
+`_WindowHider` pencereleri **poll ederek** gizliyor (0.1s aralıkla) —
+bu, pencere oluşumuyla yarışan bir mekanizma, taskkill'in verdiği "süreç
+ağacı temiz" garantisinden farklı bir şey ("hiçbir karede görünmedi"
+garantisi değil). Poll aralığı 0.02s'ye düşürüldü (5 kat), bu riski
+büyük ölçüde azaltıyor ama matematiksel olarak sıfırlamıyor — gerçek bir
+sıfırlama bir Windows event hook'u (`SetWinEventHook`, pencere
+oluşumuna polling değil tepki verir) gerektirir, şu an için orantısız
+bir karmaşıklık (devre kesici sayesinde Kademe 1 çağrıları zaten ~45
+dk'da bire indi, yani flaş de aynı oranda seyrekleşti).
 
 **Gerçek üretim hatası bulundu ve düzeltildi.** `signal.py`'nin
 `_NEGATIVE_NEWS_KEYWORDS` listesindeki tek başına `"hack"` kelimesi,
