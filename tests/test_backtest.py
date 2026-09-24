@@ -165,3 +165,79 @@ def test_replay_classes_drive_the_real_pipeline_end_to_end(tmp_path):
         result = run_cycle(db, markets, onchain, sentiment, NoNewsReplay(), with_ai=False)
         assert db.latest_market_snapshot("BTCUSDT")["mark_price"] == 101.0
         assert [c["direction"] for c in result["candidates"]] == ["accumulation"]  # net outflow from an exchange
+
+
+def test_events_from_asset_transfers_parses_alchemy_shape_and_filters():
+    exchange = "0x" + "a" * 40
+    usdt = "0xdac17f958d2ee523a2206206994597c13d831ec7"
+    transfer = {
+        "blockNum": "0x10", "uniqueId": "0xabc:log:496", "hash": "0xabc", "from": exchange, "to": "0x" + "b" * 40,
+        "rawContract": {"value": hex(3_000_000 * 10**6), "address": usdt, "decimal": "0x6"},
+        "metadata": {"blockTimestamp": "2026-09-24T05:07:23.000Z"},
+    }
+    small = {**transfer, "uniqueId": "0xdef:log:1", "hash": "0xdef",
+             "rawContract": {**transfer["rawContract"], "value": hex(5 * 10**6)}}
+    events = history._events_from_asset_transfers([transfer, small], min_usd=1_000_000, labels={exchange: "okx"})
+    assert len(events) == 1
+    assert events[0]["log_index"] == 496
+    assert events[0]["token"] == "USDT"
+    assert events[0]["from_known_exchange"] == "okx"
+    assert events[0]["block_timestamp"] == int(datetime(2026, 9, 24, 5, 7, 23, tzinfo=UTC).timestamp())
+
+
+def test_rpc_errors_never_leak_the_url(monkeypatch):
+    """Keyed providers put the API key in the URL path; a real failure
+    printed it into session output once before this was fixed."""
+    from whale_tracker.sources import onchain
+
+    class _BadResponse:
+        ok = False
+        status_code = 400
+        text = '{"error":"range too large"}'
+
+    monkeypatch.setattr(onchain.requests, "post", lambda *a, **k: _BadResponse())
+    monkeypatch.setattr(onchain.time, "sleep", lambda *_: None)
+    with pytest.raises(onchain.OnchainScanError) as caught:
+        onchain._rpc("eth_getLogs", [], retries=2, url="https://rpc.example/v2/SECRET_KEY_123")
+    assert "SECRET_KEY_123" not in str(caught.value)
+    assert "range too large" in str(caught.value)
+    assert caught.value.__cause__ is None
+
+
+class _HistoryStorage:
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+
+    def price_and_levels_history(self, symbol: str) -> list[dict]:
+        return self._rows
+
+
+def _sawtooth(cycles: int) -> list[dict]:
+    # Period-4 pattern 100, 110, 100, 90: an entry at a "100 then 110"
+    # moment wins, "100 then 90" loses, and 110/90 moments are invalid
+    # setups (past target / below stop).
+    prices = [100.0, 110.0, 100.0, 90.0]
+    return [
+        {"observed_at": (DAY + timedelta(minutes=15 * i)).isoformat(), "mark_price": prices[i % 4],
+         "support": 95.0, "resistance": 110.0}
+        for i in range(cycles)
+    ]
+
+
+def test_circular_shift_baseline_preserves_entry_spacing():
+    rows = _sawtooth(800)
+    winners = [rows[i] for i in range(0, 400, 40)]  # all at i % 4 == 0
+    positions = [{"symbol": "BTCUSDT", "opened_at": r["observed_at"], "pnl_pct": (109.45 - 100) / 100} for r in winners]
+    result = baseline.random_entry_baseline(_HistoryStorage(rows), positions, trials=400, seed=1)
+    assert result["method"] == "circular_shift"
+    # One shared shift moves every entry into the same phase, so each
+    # valid trial is all-wins or all-losses -- never a mix. Independent
+    # draws would instead average to a tight band in between.
+    assert result["random_stdev_of_means"] > 0.07
+    assert 0.3 < result["p_value"] < 0.7
+
+
+def test_baseline_returns_none_when_period_too_short_to_shift():
+    rows = _sawtooth(150)
+    positions = [{"symbol": "BTCUSDT", "opened_at": rows[0]["observed_at"], "pnl_pct": 0.01}]
+    assert baseline.random_entry_baseline(_HistoryStorage(rows), positions) is None

@@ -26,9 +26,11 @@ import hashlib
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 import requests
 
@@ -44,6 +46,10 @@ _RPC_RETRIES = 6
 # Courtesy pause between heavy eth_getLogs calls -- free-tier endpoints.
 _RPC_PAUSE_S = 0.3
 ARCHIVE_RPC_ENV = "WHALE_TRACKER_ARCHIVE_RPC_URL"
+# ~3 days per cached chunk on the Alchemy path: small enough that an
+# interrupted download loses little, large enough to keep file count low.
+ALCHEMY_CHUNK_BLOCKS = 21_600
+_ALCHEMY_WORKERS = 4
 
 
 class ArchiveAccessError(RuntimeError):
@@ -219,13 +225,100 @@ def _fetch_flow_chunk(from_block: int, to_block: int, *, min_usd: float, labels:
     return sorted(events.values(), key=lambda e: (e["block_number"], e["log_index"]))
 
 
+def _uses_alchemy(url: str) -> bool:
+    return urlparse(url).netloc.endswith("alchemy.com")
+
+
+def _events_from_asset_transfers(
+    transfers: list[dict[str, Any]], *, min_usd: float, labels: dict[str, str],
+) -> list[dict[str, Any]]:
+    token_by_contract = {contract.lower(): (symbol, decimals) for symbol, contract, decimals in onchain.TRACKED_TOKENS}
+    events = []
+    for transfer in transfers:
+        token = token_by_contract.get(transfer["rawContract"]["address"].lower())
+        if token is None:
+            continue
+        symbol, decimals = token
+        raw_amount = int(transfer["rawContract"]["value"], 16)
+        amount = raw_amount / (10**decimals)
+        if amount < min_usd:
+            continue
+        from_addr = transfer["from"].lower()
+        to_addr = (transfer["to"] or "").lower()
+        block_time = datetime.fromisoformat(transfer["metadata"]["blockTimestamp"].replace("Z", "+00:00"))
+        events.append({
+            "tx_hash": transfer["hash"],
+            "log_index": int(transfer["uniqueId"].rsplit(":", 1)[1]),
+            "block_number": int(transfer["blockNum"], 16),
+            "block_timestamp": int(block_time.timestamp()),
+            "token": symbol,
+            "from_address": from_addr,
+            "to_address": to_addr,
+            "amount_usd_estimate": amount,
+            "raw_amount": str(raw_amount),
+            "from_known_exchange": labels.get(from_addr),
+            "to_known_exchange": labels.get(to_addr),
+        })
+    return events
+
+
+def _big_transfers_for(
+    address: str, side: str, from_block: int, to_block: int, *, min_usd: float, labels: dict[str, str], url: str,
+) -> list[dict[str, Any]]:
+    """Every page of one wallet's transfers in one direction, filtered to
+    >=min_usd page by page -- the busiest wallets move ~25K transfers a
+    DAY, so the unfiltered list must never be held whole."""
+    kept: list[dict[str, Any]] = []
+    page_key = None
+    while True:
+        params: dict[str, Any] = {
+            "fromBlock": hex(from_block), "toBlock": hex(to_block), side: address,
+            "contractAddresses": [contract for _, contract, _ in onchain.TRACKED_TOKENS],
+            "category": ["erc20"], "withMetadata": True, "excludeZeroValue": True,
+            "maxCount": hex(1000), "order": "asc",
+        }
+        if page_key:
+            params["pageKey"] = page_key
+        result = onchain._rpc("alchemy_getAssetTransfers", [params], retries=_RPC_RETRIES, url=url)
+        kept.extend(_events_from_asset_transfers(result["transfers"], min_usd=min_usd, labels=labels))
+        page_key = result.get("pageKey")
+        if not page_key:
+            return kept
+
+
+def _fetch_flow_chunk_alchemy(
+    from_block: int, to_block: int, *, min_usd: float, labels: dict[str, str], url: str,
+) -> list[dict[str, Any]]:
+    """Alchemy's free tier caps eth_getLogs at a 10-block range (measured:
+    ~86K calls for 30 days), but alchemy_getAssetTransfers has no range
+    cap and pages 1000 transfers per call -- measured ~130 calls per day
+    of history across all flow wallets."""
+    jobs = [(address, side) for address in labels for side in ("fromAddress", "toAddress")]
+    events: dict[tuple[str, int], dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=_ALCHEMY_WORKERS) as pool:
+        batches = pool.map(
+            lambda job: _big_transfers_for(job[0], job[1], from_block, to_block, min_usd=min_usd, labels=labels, url=url),
+            jobs,
+        )
+        for batch in batches:
+            for event in batch:
+                events[(event["tx_hash"], event["log_index"])] = event
+    return sorted(events.values(), key=lambda e: (e["block_number"], e["log_index"]))
+
+
 def fetch_exchange_flow_events(
     start_block: int, end_block: int, *, min_usd: float = onchain.DEFAULT_MIN_USD,
-    chunk_blocks: int = DEFAULT_CHUNK_BLOCKS, progress: Callable[[str], None] | None = None,
+    chunk_blocks: int | None = None, progress: Callable[[str], None] | None = None,
 ) -> list[dict[str, Any]]:
     """All >=min_usd USDT/USDC transfers to/from flow-counted wallets in
     [start_block, end_block], each chunk cached separately so an
-    interrupted download resumes where it stopped."""
+    interrupted download resumes where it stopped. Uses Alchemy's
+    asset-transfers API when the archive RPC is Alchemy, plain
+    topic-filtered eth_getLogs otherwise."""
+    url = archive_rpc_url()
+    alchemy = _uses_alchemy(url)
+    if chunk_blocks is None:
+        chunk_blocks = ALCHEMY_CHUNK_BLOCKS if alchemy else DEFAULT_CHUNK_BLOCKS
     labels = _flow_addresses()
     # The queried address set IS the filter, so a changed wallet list
     # must not silently reuse chunks fetched against the old one.
@@ -235,7 +328,11 @@ def fetch_exchange_flow_events(
     for index, chunk_start in enumerate(chunk_starts, 1):
         chunk_end = min(chunk_start + chunk_blocks - 1, end_block)
         name = f"flow-{wallet_fingerprint}/{chunk_start}-{chunk_end}-min{int(min_usd)}.json"
-        all_events.extend(_cached(name, lambda: _fetch_flow_chunk(chunk_start, chunk_end, min_usd=min_usd, labels=labels)))
-        if progress and (index % 10 == 0 or index == len(chunk_starts)):
+        if alchemy:
+            fetch = lambda: _fetch_flow_chunk_alchemy(chunk_start, chunk_end, min_usd=min_usd, labels=labels, url=url)  # noqa: E731
+        else:
+            fetch = lambda: _fetch_flow_chunk(chunk_start, chunk_end, min_usd=min_usd, labels=labels)  # noqa: E731
+        all_events.extend(_cached(name, fetch))
+        if progress and (alchemy or index % 10 == 0 or index == len(chunk_starts)):
             progress(f"zincir üstü akış: {index}/{len(chunk_starts)} parça")
     return all_events

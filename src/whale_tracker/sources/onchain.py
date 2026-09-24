@@ -62,16 +62,22 @@ def _rpc(method: str, params: list[Any], retries: int = 3, *, url: str = RPC_URL
     for attempt in range(retries):
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=_TIMEOUT_S)
-            response.raise_for_status()
+            if not response.ok:
+                # Never let the URL into the message: keyed providers
+                # (e.g. the backtest's archive RPC) put the API key in the
+                # URL path, and requests' own HTTPError text includes it.
+                raise OnchainScanError(f"RPC HTTP {response.status_code} for {method}: {response.text[:200]}")
             body = response.json()
             if "error" in body:
                 raise OnchainScanError(f"RPC error for {method}: {body['error']}")
             return body["result"]
-        except (requests.RequestException, OnchainScanError) as error:
+        except requests.RequestException as error:
+            last_error = OnchainScanError(f"RPC request failed for {method}: {type(error).__name__}")
+        except OnchainScanError as error:
             last_error = error
-            if attempt < retries - 1:
-                time.sleep(2 * (attempt + 1))
-    raise OnchainScanError(f"RPC call failed after {retries} attempts: {method}") from last_error
+        if attempt < retries - 1:
+            time.sleep(2 * (attempt + 1))
+    raise OnchainScanError(f"RPC call failed after {retries} attempts: {method} ({last_error})") from None
 
 
 def _load_known_wallets() -> dict[str, str]:

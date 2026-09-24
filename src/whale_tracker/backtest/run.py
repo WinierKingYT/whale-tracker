@@ -60,7 +60,7 @@ def _progress(message: str) -> None:
 
 
 def load_history(
-    start: datetime, end: datetime, *, min_usd: float, chunk_blocks: int = DEFAULT_CHUNK_BLOCKS,
+    start: datetime, end: datetime, *, min_usd: float, chunk_blocks: int | None = None,
 ) -> dict[str, Any]:
     """Everything the replay needs, including warm-up before `start`:
     30+ days of daily candles for support/resistance, a day of 15m
@@ -162,8 +162,9 @@ def main() -> int:
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--min-usd", type=float, default=DEFAULT_MIN_USD)
     parser.add_argument(
-        "--chunk-blocks", type=int, default=DEFAULT_CHUNK_BLOCKS,
-        help="eth_getLogs başına blok aralığı -- RPC sağlayıcının kendi sınırına göre küçült.",
+        "--chunk-blocks", type=int, default=None,
+        help=f"Önbellek parçası başına blok sayısı (varsayılan: Alchemy'de ~3 gün, diğerlerinde "
+             f"{DEFAULT_CHUNK_BLOCKS} -- eth_getLogs'u RPC'nin kendi aralık sınırına göre küçült).",
     )
     args = parser.parse_args()
 
