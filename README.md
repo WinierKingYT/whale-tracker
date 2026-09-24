@@ -23,6 +23,16 @@ Fear&Greed Index, ve ücretsiz bir public Ethereum RPC (publicnode.com)
 kullanıyor. Bilinen borsa cüzdanları `data/known-exchange-wallets.json`'da
 (kaynak ve doğrulama notları dahil).
 
+### Durum özeti
+
+Kaç aday üretildi, kaçı Kademe 2/3'e ulaştı, açık pozisyon var mı, AI
+çağrıları (Hermes/Sonnet/Opus) ne kadar kotanı kullanıyor — tek komut,
+gerçek veya simülasyon DB'sine karşı (`--db`):
+
+```powershell
+uv run python -m whale_tracker.status
+```
+
 ### Simülasyon (test aracı)
 
 Gerçek veride Kademe 3'ün "strong" eşiği nadir tetiklendiği için
@@ -42,25 +52,20 @@ gerçek Hermes/Sonnet/Opus kotanı kullanır) — kapalıyken sentetik ama
 açıkça etiketli metin üretilir, ama stop-loss/pozisyon büyüklüğü gibi
 deterministik risk matematiği hep gerçek koddan gelir, hiç sahte değildir.
 
-1500 döngülük gerçek bir çalıştırma (seed=99) 46 kapanmış pozisyon
-üretti — Aşama 4'ün ilk kez gerçek/dolu bir skor kartı: %69.6 isabet
-ama ortalama kazanç (+%0.36) ortalama kayıptan (-%4.23) çok küçük, yani
-çoğunlukla kazanıyor ama net -%0.48 kaybediyor (yine de aynı pencerede
-BTC-hold -%3.09'u geçiyor). Bu bir hata değil — mevcut risk kurallarının
-(hedef dirence yakın/kolay tetiklenir, stop destek altına geniş tampon)
-gerçek/rastgele bir fiyat yolunda nasıl davrandığına dair genuine bir
-bulgu; gerçek veri birikince tekrar bakılmaya değer.
+Kurulurken iki gerçek zamanlama hatası (simülatörün wall-clock kullanması,
+`signal.py`'nin 24s pencerenin hiç kaymaması) ve bir haber-oranı
+kalibrasyonu bulunup düzeltildi — bkz. `simulate.py`/`signal.py`'nin kendi
+docstring'leri ve git geçmişi.
 
-Kurulurken iki gerçek zamanlama hatası bulundu ve düzeltildi: (1)
-onchain/sentiment/haber üreticileri gerçek duvar-saati kullanıyordu,
-piyasa simülatörü ise kendi ilerleyen saatini — bu yüzden "24 saatlik
-akış" penceresi hiç kaymıyor, sürekli büyüyen bir toplama dönüşüyordu
-(artık `signal.py`/`paper_trading.py` hepsi açık bir `now=` parametresi
-alıyor, production davranışı değişmedi). (2) haber üretim oranı
-gerçekte gözlemlenenden çok yüksekti, bu da negatif-haber cezasının
-`accumulation` yönünü sürekli bastırıp `distribution`'ı hiç
-etkilememesine yol açıyordu — gerçek `observer.log` verisine göre
-kalibre edildi.
+**Risk kalibrasyonu ölçülüyor, kör tahminle değil.** `calibrate.py`, aynı
+pipeline'ı N bağımsız fiyat yolunda çalıştırıp Aşama 4 skor kartlarını
+toplar (`python -m whale_tracker.calibrate --runs 10 --cycles 800`).
+10 seed'lik bir çalıştırma mevcut tasarımın (dar hedef/geniş stop, ama
+yüksek isabet oranı) net pozitif olduğunu doğruladı; standart "2:1
+ödül/risk" düzeltmesi denendi, aynı seed'lerle ölçüldü ve **daha kötü**
+çıktığı için geri alındı (isabet oranı %93.8→%12.6, getiri +%0.95→-%1.61)
+— bulgu `paper_trading.py`'nin docstring'inde kayıtlı, körü körüne tekrar
+denenmesin diye.
 
 ## Durum
 
@@ -119,16 +124,37 @@ kalıyor, asset-özel değiller — bilinçli bir basitleştirme). Gerçek canl�
 veriyle uçtan uca doğrulandı, mevcut veritabanı sorunsuz göç etti (yeni
 `symbol` sütunu, eski kayıtlar BTCUSDT'ye varsayılan).
 
-**Simülasyon eklendi** (`simulate.py`, `simulation/`) — yukarıdaki
-"Simülasyon" bölümüne bak. Gerçek veri yerine geçmiyor, sadece gerçek
-pipeline'ı hızlı/hacimli test etmek için; kendi ayrı `data/simulation.db`
-dosyasına yazıyor. `analysis.py`/`classify.py`'deki Hermes/Claude CLI
-çağrılarının Windows'ta sürekli konsol penceresi açıp kapatması da
-düzeltildi (`CREATE_NO_WINDOW`).
+**Simülasyon ve kalibrasyon eklendi** (`simulate.py`, `calibrate.py`,
+`simulation/`) — yukarıdaki bölümlere bak. Gerçek veri yerine geçmiyor,
+sadece gerçek pipeline'ı hızlı/hacimli test etmek için; kendi ayrı
+`data/simulation.db` dosyasına yazıyor.
+
+**Kota takibi eklendi.** `status.py`'nin "AI çağrıları" bölümü artık
+Kademe 1/2/3'ün gerçek deneme/başarı/süre sayılarını gösteriyor —
+`observe.py` her döngüde yazıyor. İlk gerçek ölçüm bir sorunu hemen
+ortaya çıkardı: Kademe 1 (Hermes) bu oturumdaki yoğun testler yüzünden
+ChatGPT/Codex aboneliğinin kendi kota sınırına takılmış (%0 başarı,
+~75s/deneme) — geçici, kendiliğinden düzelmesi bekleniyor, koddan
+düzeltilecek bir şey yok (hata zarifçe atlanıyor, gözlemci çökmüyor).
+
+**Pencere sorunu kökten çözüldü** (4 denemeden sonra). Gerçek neden:
+`hermes.exe` kendi içinde ayrı bir `conhost.exe` ve kendi Python
+yorumlayıcısını başlatıyordu — dıştaki çağrıya uygulanan
+`CREATE_NO_WINDOW`/`STARTUPINFO` bunu kapsamıyordu. Çözüm:
+`sources/_hidden_subprocess.py`'nin `run_hidden_and_reap()`'i her
+çağrıdan sonra **tüm süreç ağacını** (`taskkill /F /T`) zorla temizliyor;
+zamanlanmış görev de artık `wscript.exe` üzerinden tamamen gizli
+çalışıyor (`scripts/register-task.ps1`).
+
+**Gerçek üretim hatası bulundu ve düzeltildi.** `signal.py`'nin
+`_NEGATIVE_NEWS_KEYWORDS` listesindeki tek başına `"hack"` kelimesi,
+gerçek bir haberdeki "Hack VC" (bir girişim sermayesi şirketi) ismiyle
+yanlışlıkla eşleşip saatlerce `accumulation` sinyallerini bastırmış —
+`status.py` ile yapılan eleştirel bir inceleme sırasında bulundu.
 
 **Sıradaki:** İlk gerçek kağıt pozisyonların açılıp kapanmasını bekleme
-(Kademe 3 "strong" eşiğine ulaşan aday nadir); bilinen cüzdan listesini
-genişletmeye devam (Huobi/HTX hâlâ açık).
+(Kademe 3 "strong" eşiğine ulaşan aday nadir); Huobi/HTX iki bağımsız
+yöntemle denendi, bulunamadı, ertelendi.
 
 | Aşama | Durum |
 |---|---|
