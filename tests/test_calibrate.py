@@ -14,7 +14,10 @@ def test_run_one_uses_its_own_isolated_temp_db_not_shared_state():
     first = calibrate.run_one(7, cycles=30, min_usd=1_000_000.0)
     second = calibrate.run_one(7, cycles=30, min_usd=1_000_000.0)
     assert first["closed_position_count"] == second["closed_position_count"]
-    assert first["win_rate"] == second["win_rate"]
+    # win_rate only exists once a run actually closed a position -- 30
+    # cycles is small enough that seed 7 may legitimately produce zero;
+    # what matters is both independent runs agree either way.
+    assert first.get("win_rate") == second.get("win_rate")
 
 
 def test_run_batch_produces_one_scorecard_per_seed():

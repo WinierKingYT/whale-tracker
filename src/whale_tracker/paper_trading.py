@@ -15,7 +15,23 @@ Like proposal.py, the exit levels are code-derived, not AI-proposed:
   (there is none), revisit once positions actually close.
 - MAX_HOLD_DAYS enforces section 6's own stated style ("saatlik-gunluk
   pozisyonlar, swing") -- a proposal is not meant to sit open indefinitely
-  waiting for either exit price."""
+  waiting for either exit price.
+
+TRIED AND REVERTED (calibrate.py, base_seed=200, 10 runs x 800 cycles):
+this resistance-only target produces a real, consistent avg-win-much-
+smaller-than-avg-loss pattern (+0.81% vs -3.59% across the batch) --
+looks like a textbook case for a standard reward:risk floor (target =
+max(resistance, entry + 2x the stop-loss distance)). Measured it anyway
+instead of assuming the textbook heuristic transfers: win rate collapsed
+from 93.8% to 12.6% and net strategy return went from +0.95% to -1.61%.
+In a no-drift random-walk price path, a farther target is simply much
+less likely to ever be touched before the stop or MAX_HOLD_DAYS -- the
+size-per-win improvement did not come close to compensating for how much
+rarer wins became. The original resistance-only design's high hit-rate
+was doing more real work than its small win size looked like it should.
+Don't re-apply this exact fix without re-measuring; a real, better fix
+here would need to change WHY the win rate is so tied to target distance
+(e.g. actual trend/momentum modeling), not just move the target."""
 
 from __future__ import annotations
 
