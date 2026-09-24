@@ -111,6 +111,27 @@ trading'in var olma sebebi. Bulgu `paper_trading.py`'nin docstring'inde
 kayıtlı — `calibrate.py`'nin kendi "tuner değil, diagnostic" uyarısını
 doğruluyor, körü körüne yeniden ayar aranmasın diye.
 
+### Backtest (gerçek geçmiş veriyle)
+
+```
+set WHALE_TRACKER_ARCHIVE_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/<anahtarın>
+uv run python -m whale_tracker.backtest --days 30
+```
+
+Son N günün gerçek Binance fiyat/funding, Fear&Greed ve bilinen borsa
+cüzdanlarının USDT/USDC akış geçmişini indirip (bir kez, `data/backtest-cache/`
+altında önbelleğe) aynı gerçek pipeline'dan (`simulate.run_cycle`, değişmeden)
+geçirir; kendi `data/backtest.db` dosyasına yazar. İki şekilde skorlar: planın
+Aşama 4 skor kartı ve **rastgele giriş karşılaştırması** — aynı dönemde, aynı
+stop/hedef/süre kurallarıyla rastgele anlarda açılan işlemlere karşı; "sinyalin
+zamanlaması gerçekten bir şey katıyor mu" sorusunu asıl bu cevaplar.
+Geleceğe bakma (lookahead) yok: her an için yalnızca o ana kadar kapanmış veri
+görünür (testlerle korunuyor). Zincir üstü geçmiş için **arşiv erişimli bir RPC
+gerekli**: üretimin anahtarsız publicnode'u 1-2 günden eski logları vermiyor,
+2026-09-24'te denenen diğer anahtarsız RPC'lerin hiçbiri de uygun değildi.
+Sınırlamalar (sentetik Kademe 2/3, haber arşivi yok, bugünkü cüzdan listesi)
+her çıktının sonunda yazdırılıyor.
+
 ## Durum
 
 **Aşama: Gözlemci tamamlandı (1/6), Sinyal üretici tüm sinyalleriyle

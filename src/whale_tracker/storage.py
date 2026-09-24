@@ -521,6 +521,23 @@ class Storage:
         ).fetchone()
         return dict(row) if row else None
 
+    def price_and_levels_history(self, symbol: str) -> list[dict[str, Any]]:
+        """Every cycle's mark price joined with that same cycle's support/
+        resistance, oldest first -- backtest/baseline.py walks this to
+        replay random entries under the exact exit rules the strategy's
+        own positions got."""
+        rows = self._conn.execute(
+            """
+            SELECT m.observed_at, m.mark_price, t.support, t.resistance
+            FROM market_snapshots m
+            JOIN technical_snapshots t ON t.symbol = m.symbol AND t.observed_at = m.observed_at
+            WHERE m.symbol = ?
+            ORDER BY m.observed_at
+            """,
+            (symbol,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def market_snapshot_near(self, symbol: str, timestamp: str) -> dict[str, Any] | None:
         """The snapshot at-or-before `timestamp`, falling back to the
         earliest available snapshot if none exists that early -- used for

@@ -55,13 +55,13 @@ class OnchainScanError(RuntimeError):
     """Raised when the RPC call fails or returns an unexpected shape."""
 
 
-def _rpc(method: str, params: list[Any], retries: int = 3) -> Any:
+def _rpc(method: str, params: list[Any], retries: int = 3, *, url: str = RPC_URL) -> Any:
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
     headers = {"Content-Type": "application/json", "User-Agent": _USER_AGENT}
     last_error: Exception | None = None
     for attempt in range(retries):
         try:
-            response = requests.post(RPC_URL, json=payload, headers=headers, timeout=_TIMEOUT_S)
+            response = requests.post(url, json=payload, headers=headers, timeout=_TIMEOUT_S)
             response.raise_for_status()
             body = response.json()
             if "error" in body:
