@@ -18,6 +18,7 @@ import random
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from whale_tracker.simulation.regime import LatentRegime
 from whale_tracker.sources.technical import DEFAULT_LOOKBACK_DAYS, compute_technical_snapshot
 
 DEFAULT_START_PRICE = {"BTCUSDT": 70_000.0, "ETHUSDT": 3_000.0}
@@ -58,12 +59,20 @@ class MarketSimulator:
         daily_volatility: float = DAILY_VOLATILITY,
         daily_drift: float = DAILY_DRIFT,
         lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+        regime: LatentRegime | None = None,
+        edge_daily_drift: float = 0.0,
     ) -> None:
+        """`regime` + `edge_daily_drift` plant a known edge (see
+        simulation/regime.py): extra daily drift = edge_daily_drift x the
+        regime's current value. Both default off -- the unmodified
+        no-drift random walk."""
         self.symbol = symbol
         self._rng = random.Random(seed)
         self._price = start_price if start_price is not None else DEFAULT_START_PRICE.get(symbol, 100.0)
         self._daily_volatility = daily_volatility
         self._daily_drift = daily_drift
+        self._regime = regime
+        self._edge_daily_drift = edge_daily_drift
         self._lookback_days = lookback_days
         self._funding_rate = 0.0
         self._open_interest = self._price * 1_000.0
@@ -76,7 +85,10 @@ class MarketSimulator:
         forward when simulated time crosses a day boundary."""
         dt_days = minutes / (24 * 60)
         shock = self._rng.gauss(0, 1)
-        drift_term = (self._daily_drift - 0.5 * self._daily_volatility**2) * dt_days
+        daily_drift = self._daily_drift
+        if self._regime is not None:
+            daily_drift += self._edge_daily_drift * self._regime.value_at(self._now)
+        drift_term = (daily_drift - 0.5 * self._daily_volatility**2) * dt_days
         vol_term = self._daily_volatility * math.sqrt(dt_days) * shock
         self._price = max(0.01, self._price * math.exp(drift_term + vol_term))
 

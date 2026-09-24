@@ -27,12 +27,14 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from whale_tracker.backtest.baseline import random_entry_baseline
 from whale_tracker.evaluation import evaluate_paper_trading
 from whale_tracker.observe import TRACKED_SYMBOLS
 from whale_tracker.simulate import run_cycle
 from whale_tracker.simulation.market import MarketSimulator
 from whale_tracker.simulation.news import NewsSimulator
 from whale_tracker.simulation.onchain import OnchainSimulator
+from whale_tracker.simulation.regime import LatentRegime
 from whale_tracker.simulation.sentiment import SentimentSimulator
 from whale_tracker.storage import Storage
 
@@ -40,28 +42,51 @@ from whale_tracker.storage import Storage
 # --runs/--cycles for a more statistically confident (slower) pass.
 DEFAULT_NUM_RUNS = 10
 DEFAULT_CYCLES_PER_RUN = 800
+# With a planted edge, how strongly onchain flow tilts toward the
+# regime's direction (see OnchainSimulator) -- fixed, so --edge-strength
+# varies only how much the regime actually moves price.
+PLANTED_FLOW_BIAS = 1.0
+_EDGE_TEST_TRIALS = 200
+_REGIME_SEED_OFFSET = 10_000
 
 
-def run_one(seed: int, *, cycles: int, min_usd: float) -> dict[str, Any]:
+def run_one(seed: int, *, cycles: int, min_usd: float, edge_strength: float = 0.0) -> dict[str, Any]:
     """One independent simulated price path, in its own temp DB that is
     deleted when this returns -- never accumulates, never shared across
-    seeds, never touches data/simulation.db."""
+    seeds, never touches data/simulation.db.
+
+    edge_strength > 0 plants a known edge (simulation/regime.py): extra
+    daily price drift of edge_strength x a hidden whale regime that also
+    tilts onchain flow. 0 is the plain no-drift null model."""
+    regime = LatentRegime(seed=seed + _REGIME_SEED_OFFSET) if edge_strength > 0 else None
     with tempfile.TemporaryDirectory() as tmp_dir:
         db_path = Path(tmp_dir) / "calibration.db"
         with Storage(db_path) as db:
-            markets = {symbol: MarketSimulator(symbol, seed=seed) for symbol in TRACKED_SYMBOLS}
-            onchain_sim = OnchainSimulator(seed=seed, min_usd=min_usd)
+            markets = {
+                symbol: MarketSimulator(symbol, seed=seed, regime=regime, edge_daily_drift=edge_strength)
+                for symbol in TRACKED_SYMBOLS
+            }
+            onchain_sim = OnchainSimulator(
+                seed=seed, min_usd=min_usd, regime=regime, flow_bias=PLANTED_FLOW_BIAS if regime else 0.0,
+            )
             sentiment_sim = SentimentSimulator(seed=seed)
             news_sim = NewsSimulator(seed=seed)
             for _ in range(cycles):
                 run_cycle(db, markets, onchain_sim, sentiment_sim, news_sim, with_ai=False)
             scorecard = evaluate_paper_trading(db)
+            closed = [p for p in db.all_paper_positions() if p["status"] != "open"]
+            scorecard["edge_test"] = random_entry_baseline(db, closed, trials=_EDGE_TEST_TRIALS, seed=seed)
     scorecard["seed"] = seed
     return scorecard
 
 
-def run_batch(num_runs: int, *, cycles: int, min_usd: float, base_seed: int = 0) -> list[dict[str, Any]]:
-    return [run_one(base_seed + i, cycles=cycles, min_usd=min_usd) for i in range(num_runs)]
+def run_batch(
+    num_runs: int, *, cycles: int, min_usd: float, base_seed: int = 0, edge_strength: float = 0.0,
+) -> list[dict[str, Any]]:
+    return [
+        run_one(base_seed + i, cycles=cycles, min_usd=min_usd, edge_strength=edge_strength)
+        for i in range(num_runs)
+    ]
 
 
 def _mean(values: list[float]) -> float | None:
@@ -83,8 +108,16 @@ def summarize(scorecards: list[dict[str, Any]]) -> dict[str, Any]:
     drawdowns = [s["max_drawdown_pct"] for s in with_data]
     closed_counts = [s["closed_position_count"] for s in with_data]
     beats_btc_hold_flags = [s["beats_btc_hold"] for s in with_data if s["beats_btc_hold"] is not None]
+    edge_tests = [s["edge_test"] for s in with_data if s.get("edge_test")]
 
     return {
+        "edge_test_runs": len(edge_tests),
+        "mean_strategy_trade_pnl_pct": _mean([t["strategy_mean_pnl_pct"] for t in edge_tests]),
+        "mean_random_trade_pnl_pct": _mean([t["random_mean_pnl_pct"] for t in edge_tests]),
+        "mean_p_value": _mean([t["p_value"] for t in edge_tests]),
+        "pct_runs_edge_detected": (
+            round(sum(1 for t in edge_tests if t["p_value"] < 0.05) / len(edge_tests), 4) if edge_tests else None
+        ),
         "num_runs": len(scorecards),
         "runs_with_closed_positions": len(with_data),
         "runs_with_no_data": len(scorecards) - len(with_data),
@@ -130,6 +163,18 @@ def render_summary(summary: dict[str, Any]) -> str:
     if summary["pct_runs_net_positive"] is not None:
         lines.append(f"Net pozitif getirili çalıştırma oranı: {summary['pct_runs_net_positive']:.1%}")
 
+    if summary.get("edge_test_runs"):
+        lines.append("")
+        lines.append(f"Rastgele giriş karşılaştırması ({summary['edge_test_runs']} çalıştırma):")
+        lines.append(
+            f"  işlem başına ort. getiri -- strateji {summary['mean_strategy_trade_pnl_pct']:+.3%}, "
+            f"rastgele giriş {summary['mean_random_trade_pnl_pct']:+.3%}"
+        )
+        lines.append(
+            f"  ort. p-değeri {summary['mean_p_value']:.3f}; kenar yakalanan (p<0.05) çalıştırma oranı: "
+            f"{summary['pct_runs_edge_detected']:.1%}"
+        )
+
     avg_win = summary["mean_avg_win_pct"]
     avg_loss = summary["mean_avg_loss_pct"]
     if avg_win is not None and avg_loss is not None and avg_win < abs(avg_loss) * 0.5:
@@ -149,9 +194,16 @@ def main() -> int:
     parser.add_argument("--cycles", type=int, default=DEFAULT_CYCLES_PER_RUN)
     parser.add_argument("--base-seed", type=int, default=0)
     parser.add_argument("--min-usd", type=float, default=1_000_000.0)
+    parser.add_argument(
+        "--edge-strength", type=float, default=0.0,
+        help="Bilerek gömülü kenar: gizli balina rejimi başına ek günlük fiyat sürüklenmesi "
+             "(ör. 0.01 = rejim +1'deyken günde +%%1). 0 = saf rastgele yürüyüş (sıfır hipotezi).",
+    )
     args = parser.parse_args()
 
-    scorecards = run_batch(args.runs, cycles=args.cycles, min_usd=args.min_usd, base_seed=args.base_seed)
+    scorecards = run_batch(
+        args.runs, cycles=args.cycles, min_usd=args.min_usd, base_seed=args.base_seed, edge_strength=args.edge_strength,
+    )
     print(render_summary(summarize(scorecards)))
     print("\nÇalıştırma bazında:")
     for scorecard in scorecards:
@@ -160,9 +212,11 @@ def main() -> int:
             continue
         btc_hold = scorecard["btc_hold_return_pct"]
         btc_hold_text = f", btc_hold={btc_hold:+.2%}" if btc_hold is not None else ""
+        edge_test = scorecard.get("edge_test")
+        edge_text = f", kenar p={edge_test['p_value']:.3f}" if edge_test else ""
         print(
             f"  seed={scorecard['seed']}: {scorecard['closed_position_count']} pozisyon, "
-            f"isabet={scorecard['win_rate']:.1%}, getiri={scorecard['strategy_return_pct']:+.2%}{btc_hold_text}"
+            f"isabet={scorecard['win_rate']:.1%}, getiri={scorecard['strategy_return_pct']:+.2%}{btc_hold_text}{edge_text}"
         )
     return 0
 

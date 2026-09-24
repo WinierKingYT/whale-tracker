@@ -10,6 +10,7 @@ import random
 from datetime import UTC, datetime
 from typing import Any
 
+from whale_tracker.simulation.regime import LatentRegime
 from whale_tracker.sources.onchain import TRACKED_TOKENS, _load_known_wallets
 
 # Roughly matches amounts actually observed in this project's real data
@@ -33,12 +34,24 @@ def _random_address(rng: random.Random) -> str:
 class OnchainSimulator:
     def __init__(
         self, *, seed: int | None = None, events_per_cycle_mean: float = 1.5, min_usd: float = 1_000_000.0,
+        regime: LatentRegime | None = None, flow_bias: float = 0.0,
     ) -> None:
+        """`regime` + `flow_bias` plant a known edge (see
+        simulation/regime.py): each event is, with probability
+        flow_bias x |regime|, rewritten into a directional exchange flow
+        -- an outflow from an exchange when the regime is positive
+        (accumulation), an inflow when negative. Both default off."""
         self._rng = random.Random(seed)
         self._known_wallets = _load_known_wallets()
         self._known_addresses = list(self._known_wallets.keys())
+        # Exactly the wallets signal.py's flow aggregation counts.
+        self._exchange_addresses = [
+            address for address, label in self._known_wallets.items() if not label.startswith(("DEX:", "⚠"))
+        ]
         self._events_per_cycle_mean = events_per_cycle_mean
         self._min_usd = min_usd
+        self._regime = regime
+        self._flow_bias = flow_bias
         self._block_number = 20_000_000
         self._tx_counter = 0
 
@@ -58,6 +71,8 @@ class OnchainSimulator:
                 continue
             from_addr = self._random_counterparty()
             to_addr = self._random_counterparty()
+            if self._regime is not None and self._exchange_addresses:
+                from_addr, to_addr = self._apply_regime_tilt(from_addr, to_addr, observed_at)
             events.append({
                 "tx_hash": f"0xsim{self._tx_counter:08d}",
                 "log_index": 0,
@@ -72,6 +87,14 @@ class OnchainSimulator:
                 "observed_at": observed_at,
             })
         return events
+
+    def _apply_regime_tilt(self, from_addr: str, to_addr: str, observed_at: str) -> tuple[str, str]:
+        regime_value = self._regime.value_at(datetime.fromisoformat(observed_at))
+        if self._rng.random() >= min(1.0, self._flow_bias * abs(regime_value)):
+            return from_addr, to_addr
+        exchange = self._rng.choice(self._exchange_addresses)
+        unknown = _random_address(self._rng)
+        return (exchange, unknown) if regime_value > 0 else (unknown, exchange)
 
     def _random_counterparty(self) -> str:
         if self._known_addresses and self._rng.random() < _KNOWN_COUNTERPARTY_PROBABILITY:

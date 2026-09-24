@@ -20,6 +20,24 @@ def test_run_one_uses_its_own_isolated_temp_db_not_shared_state():
     assert first.get("win_rate") == second.get("win_rate")
 
 
+def test_run_one_with_planted_edge_runs_and_carries_edge_test_field():
+    scorecard = calibrate.run_one(1, cycles=40, min_usd=1_000_000.0, edge_strength=0.02)
+    assert "edge_test" in scorecard  # None when no position closed in so few cycles
+
+
+def test_summarize_reports_edge_detection_rate():
+    edge = {"strategy_mean_pnl_pct": 0.01, "random_mean_pnl_pct": 0.0, "p_value": 0.01}
+    no_edge = {"strategy_mean_pnl_pct": 0.0, "random_mean_pnl_pct": 0.0, "p_value": 0.5}
+    base = {
+        "closed_position_count": 4, "win_rate": 0.5, "strategy_return_pct": 0.0, "btc_hold_return_pct": 0.0,
+        "avg_win_pct": 0.01, "avg_loss_pct": -0.01, "max_drawdown_pct": 0.0, "beats_btc_hold": False,
+    }
+    summary = calibrate.summarize([{**base, "seed": 1, "edge_test": edge}, {**base, "seed": 2, "edge_test": no_edge}])
+    assert summary["edge_test_runs"] == 2
+    assert summary["pct_runs_edge_detected"] == 0.5
+    assert "kenar yakalanan" in calibrate.render_summary(summary)
+
+
 def test_run_batch_produces_one_scorecard_per_seed():
     scorecards = calibrate.run_batch(3, cycles=20, min_usd=1_000_000.0, base_seed=100)
     assert len(scorecards) == 3
