@@ -60,12 +60,36 @@ docstring'leri ve git geçmişi.
 **Risk kalibrasyonu ölçülüyor, kör tahminle değil.** `calibrate.py`, aynı
 pipeline'ı N bağımsız fiyat yolunda çalıştırıp Aşama 4 skor kartlarını
 toplar (`python -m whale_tracker.calibrate --runs 10 --cycles 800`).
-10 seed'lik bir çalıştırma mevcut tasarımın (dar hedef/geniş stop, ama
-yüksek isabet oranı) net pozitif olduğunu doğruladı; standart "2:1
-ödül/risk" düzeltmesi denendi, aynı seed'lerle ölçüldü ve **daha kötü**
-çıktığı için geri alındı (isabet oranı %93.8→%12.6, getiri +%0.95→-%1.61)
-— bulgu `paper_trading.py`'nin docstring'inde kayıtlı, körü körüne tekrar
-denenmesin diye.
+Standart "2:1 ödül/risk" düzeltmesi denendi, base_seed=200 ile ölçüldü
+ve **daha kötü** çıktığı için geri alındı (isabet oranı %93.8→%12.6,
+getiri +%0.95→-%1.61) — bulgu `paper_trading.py`'nin docstring'inde
+kayıtlı, körü körüne tekrar denenmesin diye.
+
+**2026-09-24 güncellemesi: "net pozitif" bulgusu artık aynı şekilde
+doğrulanmıyor, bu satır düzeltildi.** Risk Guard eklendikten ve bu
+oturumdaki diğer düzeltmelerden (haber oranı, "hack" kelimesi, saat
+hataları) sonra base_seed=0 ile taze bir kalibrasyon çalıştırıldı:
+ortalama strateji getirisi **-%0.02**, çalıştırmaların yalnızca **%28.6'sı
+net pozitif** — artık net bir "pozitif" iddiası değil, breakeven'a yakın.
+Risk Guard'ın kendi katkısını izole etmek için aynı 10 seed'le kontrollü
+bir A/B yapıldı (Risk Guard açık/kapalı, başka hiçbir şey değişmeden):
+
+| | Risk Guard AÇIK | Risk Guard KAPALI |
+|---|---|---|
+| Ort. kapanmış pozisyon/çalıştırma | 8.9 | 69.1 |
+| Ort. isabet oranı | %50.9 | %44.4 |
+| Ort. strateji getirisi | -%0.02 | -%0.23 |
+| Ort. maksimum düşüş | %0.05 | %0.73 |
+| Net pozitif çalıştırma oranı | %28.6 | %42.9 |
+
+Sonuç: Risk Guard işini yapıyor — maksimum düşüşü ~14x azaltıyor (aynı
+anda en fazla 3 pozisyon + günlük kayıp freni sayesinde), ortalama
+getiriyi de hafifçe iyileştiriyor. Ama alttaki yapısal örüntüyü
+(ortalama kazanç, ortalama kayıptan tutarlı şekilde küçük) **düzeltmiyor**
+— bu onun işi değil, zaten tasarım amacı "son söz" olmak, getiriyi
+optimize etmek değil. Asıl sorun hâlâ `proposal.py`/`paper_trading.py`'nin
+kendi stop-loss/take-profit tamponlarında; Aşama 5 öncesi bu yeniden
+gözden geçirilmeli.
 
 ## Durum
 
