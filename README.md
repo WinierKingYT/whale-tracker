@@ -250,18 +250,22 @@ zamanlanmış görev de artık `wscript.exe` üzerinden tamamen gizli
 pencere sorununu (ana problem) gerçekten çözdü — süreç ağacı her seferinde
 temiz kapanıyor, canlı doğrulandı.
 
-**Kalan iz: kısa bir yanıp-sönme, ara sıra.** 2026-09-24'te kullanıcı
-hâlâ ara sıra kısa bir pencere flaşı bildirdi (kalıcı değil, tekrar
-tekrar açılıp kapanmıyor — tek karelik bir görünüp kaybolma). Neden:
-`_WindowHider` pencereleri **poll ederek** gizliyor (0.1s aralıkla) —
-bu, pencere oluşumuyla yarışan bir mekanizma, taskkill'in verdiği "süreç
-ağacı temiz" garantisinden farklı bir şey ("hiçbir karede görünmedi"
-garantisi değil). Poll aralığı 0.02s'ye düşürüldü (5 kat), bu riski
-büyük ölçüde azaltıyor ama matematiksel olarak sıfırlamıyor — gerçek bir
-sıfırlama bir Windows event hook'u (`SetWinEventHook`, pencere
-oluşumuna polling değil tepki verir) gerektirir, şu an için orantısız
-bir karmaşıklık (devre kesici sayesinde Kademe 1 çağrıları zaten ~45
-dk'da bire indi, yani flaş de aynı oranda seyrekleşti).
+**Kalan flaşın kaynağı whale-tracker değilmiş (2026-09-24, ölçülerek
+bulundu).** Kullanıcı hâlâ ara sıra `...\hermes.EXE` başlıklı kısa
+pencereler görüyordu; önce bu, `_WindowHider`'ın poll aralığına
+bağlandı (0.1s → 0.02s yapıldı — zararsız, ama sebep bu değildi).
+Asıl neden, 10 dakikalık canlı bir süreç+pencere izlemesiyle bulundu:
+7 görünür pencerenin **hepsi** Brain-Eleven'ın arka plan servisinden
+(`pythonw.exe ... launcher.py --serve`) geliyordu — yakalanan her mesaj
+için IG-03 semantic çıkarımı `hermes.EXE` çağırıyordu ve konsolsuz
+(`pythonw`) bir süreç `CREATE_NO_WINDOW` vermeden konsol programı
+başlatınca Windows ona yeni, **görünür** bir konsol açıyor. Aynı
+izlemede whale-tracker observer'ın Hermes çağrıları **sıfır** pencere
+açtı. Düzeltme Brain-Eleven'da yapıldı (servis artık gizli konsollu
+`python.exe` ile çalışıyor); aynı servis ~580 Hermes çağrısıyla (1.5
+günde) Codex kotasının da ana tüketicisiydi — Kademe 1'in saatlerce
+süren 429'larının büyük ihtimalle asıl sebebi. Brain-Eleven'daki Hermes
+sağlayıcısı kapatıldı, kota artık whale-tracker'a kalıyor.
 
 **Gerçek üretim hatası bulundu ve düzeltildi.** `signal.py`'nin
 `_NEGATIVE_NEWS_KEYWORDS` listesindeki tek başına `"hack"` kelimesi,
