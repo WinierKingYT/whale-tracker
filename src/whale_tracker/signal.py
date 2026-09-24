@@ -38,8 +38,18 @@ FUNDING_LOW_THRESHOLD = -0.0002  # -0.02%
 SENTIMENT_FEAR_THRESHOLD = 45.0
 SENTIMENT_GREED_THRESHOLD = 55.0
 
+# Found via real production data, not review: bare "hack" false-matched
+# "Former Hack VC partner ... found dead at 37" (Hack VC is a venture
+# capital firm's name, nothing to do with a security incident) for
+# roughly 7.5 hours of real candidates (see status.py's audit + git
+# history) -- _has_recent_negative_news's word-boundary regex has no way
+# to tell a proper noun from the word it happens to share. "hacked"
+# (already in this list) still catches the real "exchange was hacked"
+# phrasing without matching a name; accepting slightly lower recall on
+# headlines that use "hack" as a bare noun ("Major hack drains $50M") in
+# exchange for not silently corrupting real candidates for hours.
 _NEGATIVE_NEWS_KEYWORDS = (
-    "hack", "exploit", "hacked", "stolen", "theft", "lawsuit", "sec charges",
+    "exploit", "hacked", "stolen", "theft", "lawsuit", "sec charges",
     "ban", "crackdown", "delist", "insolvent", "bankruptcy", "collapse",
     "phishing", "scam", "rug pull",
 )

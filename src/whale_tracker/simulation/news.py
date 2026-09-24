@@ -18,9 +18,11 @@ _NEUTRAL_TEMPLATES = (
     "{asset} network activity hits new monthly high",
 )
 # Each contains at least one of signal.py's _NEGATIVE_NEWS_KEYWORDS
-# ("hack", "ban", "insolvent", "phishing", "scam", ...).
+# ("hacked", "ban", "insolvent", "phishing", "scam", ...) -- "hacked," not
+# bare "hack," which signal.py stopped matching after it false-positived
+# on a real headline naming "Hack VC" (a firm, not an incident).
 _NEGATIVE_TEMPLATES = (
-    "Exchange reports hack, {asset} withdrawals frozen",
+    "Exchange hacked, {asset} withdrawals frozen",
     "Regulators move to ban {asset}-linked exchange",
     "Major {asset} custody firm faces insolvent balance sheet",
     "Phishing scam drains millions in {asset} from users",

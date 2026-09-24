@@ -61,7 +61,7 @@ def test_negative_news_zeroes_out_flow_component_for_accumulation(tmp_path):
         })
         _seed_outflow_event(db, amount=15_000_000)
         db.insert_headline({
-            "source": "coindesk", "title": "Major exchange hack drains $200M",
+            "source": "coindesk", "title": "Major exchange hacked, $200M drained",
             "link": "https://example.com/x", "published_at": None, "observed_at": _now_iso(),
         })
 
@@ -70,6 +70,28 @@ def test_negative_news_zeroes_out_flow_component_for_accumulation(tmp_path):
     accumulation = next(c for c in candidates if c["direction"] == "accumulation")
     assert accumulation["components"]["onchain_flow"] == 0.0
     assert any("olumsuz haber" in line for line in accumulation["rationale"])
+
+
+def test_negative_news_ignores_proper_noun_false_positive(tmp_path):
+    """Regression: bare 'hack' used to word-boundary-match 'Hack VC' (a
+    venture capital firm's name) in real production headlines, falsely
+    zeroing accumulation's onchain_flow for hours. 'hacked' still catches
+    a real incident; a name containing 'Hack' must not trigger it."""
+    with Storage(tmp_path / "t.db") as db:
+        db.insert_market_snapshot({
+            "symbol": "BTCUSDT", "funding_rate": 0.00005, "open_interest": 100.0,
+            "mark_price": 90000.0, "observed_at": _now_iso(),
+        })
+        _seed_outflow_event(db, amount=15_000_000)
+        db.insert_headline({
+            "source": "coindesk", "title": "Former Hack VC partner found dead at 37",
+            "link": "https://example.com/y", "published_at": None, "observed_at": _now_iso(),
+        })
+
+        candidates = signal.generate_candidates(db)
+
+    accumulation = next(c for c in candidates if c["direction"] == "accumulation")
+    assert accumulation["components"]["onchain_flow"] > 0.0
 
 
 def test_old_events_outside_window_are_excluded(tmp_path):
