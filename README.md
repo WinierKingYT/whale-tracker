@@ -105,6 +105,14 @@ karşı kontrol ediliyor — stop, hedef veya 7 gün (swing tarzı üst sınır)
 dolunca otomatik kapanıp P&L kaydediliyor. Hâlâ hiçbir aşamada gerçek emir
 yok, gerçek para yok — bu tamamen kod içi defter tutma.
 
+**Risk Guard eklendi** (`paper_trading.risk_guard_blocks_new_position`).
+Section 7'nin "Değişmez Anayasa"sındaki iki kural artık kod tarafında
+uygulanıyor (önceden paper trading'de bile yoktu): aynı anda en fazla 3
+açık pozisyon, günlük kayıp sanal sermayenin %3'ünü aşarsa o gün yeni
+pozisyon açılmaz. Planın kendi tablosundaki "Risk Guard (kod) — her
+işlemde, son söz" rolü budur; Aşama 5'te gerçek para devreye girdiğinde
+aynı guard zaten kanıtlanmış olacak.
+
 **Aşama 4, Değerlendirme** (`evaluation.py`) ölçüm altyapısı da hazır —
 henüz kapanmış pozisyon yoksa dahi çalışır, ilk pozisyonlar kapandığı an
 doğrudan kullanılabilir: isabet oranı, ortalama kazanç/kayıp oranı,

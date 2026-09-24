@@ -36,7 +36,7 @@ from typing import Any
 
 from whale_tracker.evaluation import evaluate_paper_trading, render_evaluation_report
 from whale_tracker.observe import TRACKED_SYMBOLS
-from whale_tracker.paper_trading import check_and_close_positions, open_position
+from whale_tracker.paper_trading import check_and_close_positions, open_position, risk_guard_blocks_new_position
 from whale_tracker.report import render_report
 from whale_tracker.signal import generate_candidates
 from whale_tracker.simulation.market import MarketSimulator
@@ -201,7 +201,7 @@ def run_cycle(
                 db.insert_final_proposal(candidate_id, proposal, simulated_now)
                 candidate["final_proposal"] = proposal
 
-                if market_snapshots[symbol]:
+                if market_snapshots[symbol] and not risk_guard_blocks_new_position(db, now=simulated_now_dt):
                     position = open_position(
                         candidate_id, proposal, market_snapshots[symbol]["mark_price"],
                         technical_snapshots[symbol], symbol=symbol, now=simulated_now_dt,

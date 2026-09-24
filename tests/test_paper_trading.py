@@ -178,3 +178,90 @@ def test_check_and_close_positions_leaves_open_position_untouched(tmp_path):
 
     assert closed == []
     assert len(remaining_open) == 1
+
+
+def _candidate(db, symbol="BTCUSDT"):
+    return db.insert_signal_candidate({
+        "symbol": symbol, "direction": "accumulation", "confidence": 0.9,
+        "components": {}, "rationale": [], "generated_at": datetime.now(UTC).isoformat(),
+    })
+
+
+def _open_position_row(db, *, entry_price=70000.0, size_usd=100.0, symbol="BTCUSDT"):
+    return db.insert_paper_position({
+        "signal_candidate_id": _candidate(db, symbol), "symbol": symbol, "entry_price": entry_price,
+        "stop_loss_price": entry_price * 0.95, "take_profit_price": entry_price * 1.05,
+        "position_size_usd": size_usd, "status": "open", "opened_at": datetime.now(UTC).isoformat(),
+    })
+
+
+def _closed_position_today(db, *, pnl_usd, symbol="BTCUSDT"):
+    position_id = _open_position_row(db, symbol=symbol)
+    db.close_paper_position(
+        position_id, exit_price=70000.0, status="stopped_out",
+        closed_at=datetime.now(UTC).isoformat(), pnl_usd=pnl_usd, pnl_pct=0.0,
+    )
+
+
+def test_risk_guard_allows_new_position_by_default(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        assert paper_trading.risk_guard_blocks_new_position(db) is None
+
+
+def test_risk_guard_blocks_when_concurrent_cap_reached(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        for _ in range(paper_trading.MAX_CONCURRENT_POSITIONS):
+            _open_position_row(db)
+        reason = paper_trading.risk_guard_blocks_new_position(db)
+    assert reason is not None
+    assert "pozisyon tavanı" in reason
+
+
+def test_risk_guard_allows_when_below_concurrent_cap(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        for _ in range(paper_trading.MAX_CONCURRENT_POSITIONS - 1):
+            _open_position_row(db)
+        reason = paper_trading.risk_guard_blocks_new_position(db)
+    assert reason is None
+
+
+def test_risk_guard_blocks_when_daily_loss_limit_exceeded(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        # -3.5% of VIRTUAL_CAPITAL_USD in one day, past the 3% limit
+        _closed_position_today(db, pnl_usd=-paper_trading.VIRTUAL_CAPITAL_USD * 0.035)
+        reason = paper_trading.risk_guard_blocks_new_position(db)
+    assert reason is not None
+    assert "günlük kayıp" in reason
+
+
+def test_risk_guard_allows_when_daily_loss_within_limit(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        _closed_position_today(db, pnl_usd=-paper_trading.VIRTUAL_CAPITAL_USD * 0.01)
+        reason = paper_trading.risk_guard_blocks_new_position(db)
+    assert reason is None
+
+
+def test_risk_guard_daily_loss_only_counts_today_not_earlier_losses(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        candidate_id = _candidate(db)
+        position_id = db.insert_paper_position({
+            "signal_candidate_id": candidate_id, "symbol": "BTCUSDT", "entry_price": 70000.0,
+            "stop_loss_price": 66500.0, "take_profit_price": 73500.0, "position_size_usd": 100.0,
+            "status": "open", "opened_at": (datetime.now(UTC) - timedelta(days=2)).isoformat(),
+        })
+        # a big loss, but closed two days ago -- must not count against today
+        db.close_paper_position(
+            position_id, exit_price=66500.0, status="stopped_out",
+            closed_at=(datetime.now(UTC) - timedelta(days=2)).isoformat(),
+            pnl_usd=-paper_trading.VIRTUAL_CAPITAL_USD * 0.10, pnl_pct=-0.05,
+        )
+        reason = paper_trading.risk_guard_blocks_new_position(db)
+    assert reason is None
+
+
+def test_daily_pnl_pct_sums_only_todays_closed_positions(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        _closed_position_today(db, pnl_usd=30.0)
+        _closed_position_today(db, pnl_usd=-10.0)
+        pct = paper_trading._daily_pnl_pct(db, now=datetime.now(UTC))
+    assert abs(pct - 20.0 / paper_trading.VIRTUAL_CAPITAL_USD) < 1e-9

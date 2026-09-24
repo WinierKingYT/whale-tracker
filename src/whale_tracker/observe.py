@@ -11,7 +11,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from whale_tracker.paper_trading import check_and_close_positions, open_position
+from whale_tracker.paper_trading import check_and_close_positions, open_position, risk_guard_blocks_new_position
 from whale_tracker.report import render_report
 from whale_tracker.signal import generate_candidates
 from whale_tracker.sources.analysis import AnalysisError, generate_deep_analysis
@@ -148,14 +148,22 @@ def run_once(
                             # simulated position, tracked against real prices
                             # from here on. No exchange client, no real
                             # money -- see paper_trading.py's own docstring.
+                            # Risk Guard (section 7, "Değişmez Anayasa") has
+                            # final say before any position, paper or
+                            # otherwise -- concurrent-position cap and daily
+                            # loss circuit breaker, checked every time.
                             if markets[symbol]:
-                                position = open_position(
-                                    candidate_id, proposal, markets[symbol]["mark_price"],
-                                    deep_context["technical_snapshot"], symbol=symbol,
-                                )
-                                if position:
-                                    db.insert_paper_position(position)
-                                    candidate["paper_position"] = position
+                                risk_block = risk_guard_blocks_new_position(db, now=datetime.now(UTC))
+                                if risk_block:
+                                    print(f"[uyarı] Risk Guard: yeni pozisyon engellendi -- {risk_block}", file=sys.stderr)
+                                else:
+                                    position = open_position(
+                                        candidate_id, proposal, markets[symbol]["mark_price"],
+                                        deep_context["technical_snapshot"], symbol=symbol,
+                                    )
+                                    if position:
+                                        db.insert_paper_position(position)
+                                        candidate["paper_position"] = position
                         except ProposalError as error:
                             db.insert_ai_call_log(
                                 "kademe3_opus", attempted=1, succeeded=0,

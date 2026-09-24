@@ -55,6 +55,49 @@ TAKE_PROFIT_RESISTANCE_BUFFER_PCT = 0.005
 # thesis worth holding open indefinitely.
 MAX_HOLD_DAYS = 7
 
+# Section 7, "Risk Kurallari (Degismez Anayasa)" -- these two were not
+# enforced ANYWHERE before, not even in paper trading: "Ayni anda en fazla
+# 2-3 acik pozisyon" (upper bound taken as the cap) and "Gunluk maksimum
+# kayip %3 -> asilirsa sistem o gun durur." The plan's own AI-tier table
+# calls this the "Risk Guard (kod) -- her islemde, son soz" role -- final
+# say on every trade, not negotiable, not AI-adjustable, not something a
+# good trade idea overrides. Global across all tracked symbols (the plan
+# doesn't say per-symbol) and checked before every new position, paper or
+# otherwise, so the same guard is already proven correct once Asama 5
+# needs it for real.
+MAX_CONCURRENT_POSITIONS = 3
+MAX_DAILY_LOSS_PCT = 0.03
+
+
+def _daily_pnl_pct(storage: Any, *, now: datetime) -> float:
+    """Sum of pnl_usd for positions closed on `now`'s UTC calendar date,
+    as a fraction of VIRTUAL_CAPITAL_USD. Positive = net winning day so
+    far, negative = net losing day."""
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    total_usd = 0.0
+    for position in storage.all_paper_positions():
+        if position["status"] == "open" or not position.get("closed_at"):
+            continue
+        if datetime.fromisoformat(position["closed_at"]) >= day_start:
+            total_usd += position["pnl_usd"]
+    return total_usd / VIRTUAL_CAPITAL_USD
+
+
+def risk_guard_blocks_new_position(storage: Any, *, now: datetime | None = None) -> str | None:
+    """Returns a human-readable reason if the plan's own fixed risk rules
+    block opening ANY new position right now, else None. Call this before
+    open_position() -- it stays a separate, independently-testable check
+    rather than folded into open_position() itself, so a caller can log
+    exactly why a otherwise-valid strong candidate didn't open, same
+    transparency principle as every other skip-reason in this codebase."""
+    now = now or datetime.now(UTC)
+    if len(storage.open_paper_positions()) >= MAX_CONCURRENT_POSITIONS:
+        return f"eşzamanlı pozisyon tavanı doldu (>={MAX_CONCURRENT_POSITIONS})"
+    daily_pnl_pct = _daily_pnl_pct(storage, now=now)
+    if daily_pnl_pct <= -MAX_DAILY_LOSS_PCT:
+        return f"günlük kayıp sınırı aşıldı ({daily_pnl_pct:+.2%}, sınır {-MAX_DAILY_LOSS_PCT:.0%})"
+    return None
+
 
 def open_position(
     candidate_id: int, proposal: dict[str, Any], market_price: float, technical: dict[str, Any] | None,
