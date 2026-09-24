@@ -17,7 +17,12 @@ from whale_tracker.signal import generate_candidates
 from whale_tracker.sources.analysis import AnalysisError, generate_deep_analysis
 from whale_tracker.sources.proposal import ProposalError, generate_final_proposal
 from whale_tracker.sources.binance import BinanceMarketDataError, fetch_market_snapshot
-from whale_tracker.sources.classify import classify_top_events
+from whale_tracker.sources.classify import (
+    CIRCUIT_BREAKER_COOLDOWN_MINUTES,
+    CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+    classify_top_events,
+    kademe1_circuit_open,
+)
 from whale_tracker.sources.news import NewsFeedError, fetch_headlines
 from whale_tracker.sources.onchain import OnchainScanError, scan_new_transfers
 from whale_tracker.sources.sentiment import FearGreedError, fetch_fear_greed
@@ -76,23 +81,35 @@ def run_once(
 
         # Kademe 1: classify only the largest few events (cost/latency
         # bounded -- see sources/classify.py). A classification failure for
-        # any one event is skipped, never fails the run.
-        kademe1_attempted = min(classify_limit, len(onchain_events)) if onchain_events else 0
-        kademe1_started = time.perf_counter()
-        classifications = classify_top_events(onchain_events, limit=classify_limit) if onchain_events else {}
-        classified_at = datetime.now(UTC).isoformat()
-        for index, classification in classifications.items():
-            event = onchain_events[index]
-            db.insert_classification(event["tx_hash"], event["log_index"], classification, classified_at)
-            event["classification"] = classification
-        if kademe1_attempted:
-            kademe1_succeeded = len(classifications)
-            db.insert_ai_call_log(
-                "kademe1_hermes", attempted=kademe1_attempted, succeeded=kademe1_succeeded,
-                duration_ms=(time.perf_counter() - kademe1_started) * 1000,
-                error_reason=None if kademe1_succeeded == kademe1_attempted else "bir veya daha fazla çağrı başarısız",
-                called_at=classified_at,
+        # any one event is skipped, never fails the run. The circuit
+        # breaker skips the call entirely (not logged -- see its own
+        # docstring) once it's been failing consistently, rather than
+        # paying the timeout cost every single cycle for a call almost
+        # certain to fail.
+        classifications: dict[int, dict] = {}
+        if onchain_events and kademe1_circuit_open(db):
+            print(
+                f"[uyarı] Kademe 1 (Hermes) devre kesici açık: son {CIRCUIT_BREAKER_FAILURE_THRESHOLD} deneme "
+                f"başarısız, {CIRCUIT_BREAKER_COOLDOWN_MINUTES} dk soğuma sürüyor -- bu döngü atlanıyor",
+                file=sys.stderr,
             )
+        elif onchain_events:
+            kademe1_attempted = min(classify_limit, len(onchain_events))
+            kademe1_started = time.perf_counter()
+            classifications = classify_top_events(onchain_events, limit=classify_limit)
+            classified_at = datetime.now(UTC).isoformat()
+            for index, classification in classifications.items():
+                event = onchain_events[index]
+                db.insert_classification(event["tx_hash"], event["log_index"], classification, classified_at)
+                event["classification"] = classification
+            if kademe1_attempted:
+                kademe1_succeeded = len(classifications)
+                db.insert_ai_call_log(
+                    "kademe1_hermes", attempted=kademe1_attempted, succeeded=kademe1_succeeded,
+                    duration_ms=(time.perf_counter() - kademe1_started) * 1000,
+                    error_reason=None if kademe1_succeeded == kademe1_attempted else "bir veya daha fazla çağrı başarısız",
+                    called_at=classified_at,
+                )
 
         # Aşama 2, Sinyal üretici: corroborate the accumulated signals
         # (onchain flow, funding, sentiment, news, technical) into scored

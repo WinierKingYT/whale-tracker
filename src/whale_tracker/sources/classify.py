@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,35 @@ _HERMES_PATH = shutil.which("hermes") or str(
     Path.home() / "AppData" / "Local" / "hermes" / "bin" / "hermes.exe"
 )
 _TIMEOUT_S = 30
+
+# Real 2026-09-24 case: the Codex subscription backing Hermes hit its own
+# usage limit (HTTP 429) and stayed exhausted across 8 consecutive real
+# scheduled cycles -- 0 of 39 attempted calls succeeded, each attempt still
+# costing ~60-90s (retries + timeout) for nothing. Not something code can
+# fix (it's an account-level quota, confirmed via `hermes doctor`), but
+# burning that time every single cycle while it's known-exhausted is a real
+# cost worth avoiding.
+CIRCUIT_BREAKER_FAILURE_THRESHOLD = 3
+CIRCUIT_BREAKER_COOLDOWN_MINUTES = 30
+
+
+def kademe1_circuit_open(storage: Any, *, now: datetime | None = None) -> bool:
+    """Returns True if Kademe 1 should be skipped this cycle: the last
+    CIRCUIT_BREAKER_FAILURE_THRESHOLD logged attempts all failed outright
+    (zero successes) and CIRCUIT_BREAKER_COOLDOWN_MINUTES hasn't yet
+    elapsed since the most recent one. Not a permanent block -- skipped
+    cycles are never logged (see observe.py), so the cooldown clock stays
+    anchored to the last real attempt; once it elapses, the next cycle
+    probes for free, and any success immediately closes the circuit again
+    (a fresh `recent` window would include that success)."""
+    now = now or datetime.now(UTC)
+    recent = storage.recent_ai_calls("kademe1_hermes", limit=CIRCUIT_BREAKER_FAILURE_THRESHOLD)
+    if len(recent) < CIRCUIT_BREAKER_FAILURE_THRESHOLD:
+        return False
+    if any(row["succeeded"] > 0 for row in recent):
+        return False
+    last_attempt_at = datetime.fromisoformat(recent[0]["called_at"])
+    return now - last_attempt_at < timedelta(minutes=CIRCUIT_BREAKER_COOLDOWN_MINUTES)
 
 _INSTRUCTION = """Sen bir kripto piyasası zincir-üstü hareket sınıflandırıcısısın.
 Sana bir stablecoin transferi verilecek. Yalnızca şu tam şekilde bir JSON nesnesi döndür:

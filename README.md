@@ -141,9 +141,21 @@ sadece gerçek pipeline'ı hızlı/hacimli test etmek için; kendi ayrı
 Kademe 1/2/3'ün gerçek deneme/başarı/süre sayılarını gösteriyor —
 `observe.py` her döngüde yazıyor. İlk gerçek ölçüm bir sorunu hemen
 ortaya çıkardı: Kademe 1 (Hermes) bu oturumdaki yoğun testler yüzünden
-ChatGPT/Codex aboneliğinin kendi kota sınırına takılmış (%0 başarı,
-~75s/deneme) — geçici, kendiliğinden düzelmesi bekleniyor, koddan
-düzeltilecek bir şey yok (hata zarifçe atlanıyor, gözlemci çökmüyor).
+ChatGPT/Codex aboneliğinin kendi kota sınırına takılmış — geçici bir
+blip değil, 8 kesintisiz gerçek döngü boyunca %0 başarı (0/39 çağrı,
+~68s/deneme) olarak doğrulandı (`hermes doctor` ile hesabın kendisinin
+sağlıklı/giriş yapılmış olduğu, sorunun tamamen kota tarafında olduğu
+teyit edildi). Koddan düzeltilebilecek bir hata değil, ama her denemenin
+~68s'yi boşa harcaması gerçek bir maliyet.
+
+**Devre kesici eklendi** (`sources/classify.kademe1_circuit_open`).
+Kademe 1 son `CIRCUIT_BREAKER_FAILURE_THRESHOLD` (3) denemede hiç
+başarı yoksa, `CIRCUIT_BREAKER_COOLDOWN_MINUTES` (30) dk boyunca
+çağrıyı tamamen atlıyor (loglanmıyor) — kota geri geldiğinde bir
+sonraki döngü otomatik olarak ücretsiz "prob" deniyor ve başarı olursa
+devre kendiliğinden kapanıyor. Kalıcı bir engelleme değil, sadece
+bilinen-tükenmiş bir kotaya karşı her döngüde tekrar tekrar 68s
+harcamayı önlüyor.
 
 **Pencere sorunu kökten çözüldü** (4 denemeden sonra). Gerçek neden:
 `hermes.exe` kendi içinde ayrı bir `conhost.exe` ve kendi Python

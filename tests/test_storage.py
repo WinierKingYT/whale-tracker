@@ -143,3 +143,24 @@ def test_ai_call_log_summary_aggregates_by_call_type(tmp_path):
 def test_ai_call_log_summary_empty_by_default(tmp_path):
     with Storage(tmp_path / "test.db") as db:
         assert db.ai_call_log_summary() == []
+
+
+def test_recent_ai_calls_returns_newest_first_limited_and_filtered_by_type(tmp_path):
+    with Storage(tmp_path / "test.db") as db:
+        db.insert_ai_call_log(
+            "kademe1_hermes", attempted=5, succeeded=0, duration_ms=100.0,
+            error_reason="429", called_at="2026-09-24T10:00:00+00:00",
+        )
+        db.insert_ai_call_log(
+            "kademe2_sonnet", attempted=1, succeeded=1, duration_ms=100.0,
+            error_reason=None, called_at="2026-09-24T10:05:00+00:00",
+        )
+        db.insert_ai_call_log(
+            "kademe1_hermes", attempted=5, succeeded=0, duration_ms=100.0,
+            error_reason="429", called_at="2026-09-24T10:15:00+00:00",
+        )
+
+        recent = db.recent_ai_calls("kademe1_hermes", limit=1)
+
+    assert len(recent) == 1
+    assert recent[0]["called_at"] == "2026-09-24T10:15:00+00:00"

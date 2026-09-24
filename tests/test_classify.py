@@ -1,10 +1,19 @@
 """Offline unit tests: mock the Hermes CLI call, no real subprocess/network."""
 
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from whale_tracker.sources import classify
+
+
+class _FakeStorage:
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+
+    def recent_ai_calls(self, call_type: str, *, limit: int) -> list[dict]:
+        return self._rows[:limit]
 
 
 def _event(**overrides):
@@ -53,3 +62,29 @@ def test_classify_top_events_only_classifies_largest_n_and_skips_failures(monkey
     results = classify.classify_top_events(events, limit=2)
     # top 2 by amount are index 3 ($9M) and index 1 ($5M); index 1 fails and is skipped
     assert set(results.keys()) == {3}
+
+
+def _failed_call(minutes_ago: float) -> dict:
+    called_at = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat()
+    return {"call_type": "kademe1_hermes", "attempted": 5, "succeeded": 0, "called_at": called_at}
+
+
+def test_circuit_stays_closed_with_too_few_logged_cycles():
+    storage = _FakeStorage([_failed_call(5), _failed_call(20)])  # only 2, threshold is 3
+    assert classify.kademe1_circuit_open(storage) is False
+
+
+def test_circuit_stays_closed_if_any_recent_cycle_succeeded():
+    rows = [_failed_call(5), {**_failed_call(20), "succeeded": 2}, _failed_call(35)]
+    storage = _FakeStorage(rows)
+    assert classify.kademe1_circuit_open(storage) is False
+
+
+def test_circuit_opens_after_threshold_consecutive_failures_within_cooldown():
+    storage = _FakeStorage([_failed_call(5), _failed_call(20), _failed_call(35)])
+    assert classify.kademe1_circuit_open(storage) is True
+
+
+def test_circuit_closes_again_once_cooldown_elapses():
+    storage = _FakeStorage([_failed_call(45), _failed_call(60), _failed_call(75)])
+    assert classify.kademe1_circuit_open(storage) is False

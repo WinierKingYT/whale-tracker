@@ -387,6 +387,16 @@ class Storage:
         )
         self._conn.commit()
 
+    def recent_ai_calls(self, call_type: str, *, limit: int) -> list[dict[str, Any]]:
+        """Most recent `limit` logged calls for `call_type`, newest first --
+        used by classify.py's circuit breaker to check for a run of
+        consecutive failures without scanning the whole table."""
+        rows = self._conn.execute(
+            "SELECT * FROM ai_call_log WHERE call_type = ? ORDER BY called_at DESC, id DESC LIMIT ?",
+            (call_type, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def ai_call_log_summary(self) -> list[dict[str, Any]]:
         """Per call_type: total cycles logged, total attempted/succeeded
         calls, average duration, and how many cycles had zero successes
