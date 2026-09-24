@@ -87,9 +87,29 @@ anda en fazla 3 pozisyon + günlük kayıp freni sayesinde), ortalama
 getiriyi de hafifçe iyileştiriyor. Ama alttaki yapısal örüntüyü
 (ortalama kazanç, ortalama kayıptan tutarlı şekilde küçük) **düzeltmiyor**
 — bu onun işi değil, zaten tasarım amacı "son söz" olmak, getiriyi
-optimize etmek değil. Asıl sorun hâlâ `proposal.py`/`paper_trading.py`'nin
-kendi stop-loss/take-profit tamponlarında; Aşama 5 öncesi bu yeniden
-gözden geçirilmeli.
+optimize etmek değil.
+
+**Tampon asimetrisi köküne kadar kazıldı — ve düzeltilmedi, bilinçli
+olarak.** Gerçek kapanmış pozisyonlara bakınca mekanik neden net çıktı:
+`proposal.py`'nin stop tamponu (%2) ile `paper_trading.py`'nin hedef
+tamponu (%0.5) arasında 4 kat fark var — giriş anındaki implied
+ödül:risk oranı medyan **0.045** (stop, hedeften ~20 kat uzak). Aynı 10
+seed'le iki aday test edildi (tamponlar %1/%1 ve %0.5/%0.5'e
+eşitlenerek): mekanizma tahmin ettiği gibi çalıştı, ortalama kayıp
+tutarlı şekilde küçüldü (-%2.42 → -%1.58 → -%0.94) — ama **net strateji
+getirisi üçünde de aynı yerde kaldı** (-%0.02, -%0.01, -%0.02), ve
+%0.5/%0.5 en kötü isabet oranını (%41.7) ve en az net-pozitif
+çalıştırmayı (%14.3) verdi (sıkı stop, gürültüden daha sık tetikleniyor).
+Kazanç büyüklüğü ile isabet oranı neredeyse tam birbirini götürüyor.
+**Canlı sabitler değiştirilmedi.** Gerçek sonuç bir "doğru tampon
+sayısı" arayışı değil: sürüklenmesiz bir GBM rastgele yürüyüşünün
+yapısı gereği hiçbir mekanik stop/hedef kombinasyonu gerçek bir kenar
+(edge) gösteremez — bu stratejinin gerçek bir kenarı olup olmadığı
+ancak gerçek fiyat verisiyle (GBM'in taklit edemeyeceği gerçek balina/
+duygu/haber sinyal içeriğiyle) cevaplanabilir, tam olarak gerçek kağıt
+trading'in var olma sebebi. Bulgu `paper_trading.py`'nin docstring'inde
+kayıtlı — `calibrate.py`'nin kendi "tuner değil, diagnostic" uyarısını
+doğruluyor, körü körüne yeniden ayar aranmasın diye.
 
 ## Durum
 

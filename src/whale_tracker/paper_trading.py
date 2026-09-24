@@ -31,7 +31,37 @@ rarer wins became. The original resistance-only design's high hit-rate
 was doing more real work than its small win size looked like it should.
 Don't re-apply this exact fix without re-measuring; a real, better fix
 here would need to change WHY the win rate is so tied to target distance
-(e.g. actual trend/momentum modeling), not just move the target."""
+(e.g. actual trend/momentum modeling), not just move the target.
+
+TRIED AND REVERTED AGAIN (2026-09-24, base_seed=0, same 10x800 batch,
+after Risk Guard existed): re-measured with fresh eyes and found the
+real mechanical cause of avg-win << avg-loss -- not market behavior, a
+buffer mismatch. proposal.py's STOP_LOSS_SUPPORT_BUFFER_PCT is 2%,
+this module's own TAKE_PROFIT_RESISTANCE_BUFFER_PCT is 0.5% -- a 4x
+asymmetry in the safety margins themselves. Confirmed against real
+closed positions from that batch: median implied reward:risk at entry
+was 0.045 (stop ~20x farther than target), and whenever the 30-day
+support-resistance range is narrow (common), that fixed 4x buffer gap
+dominates the geometry regardless of anything else. Tested equalizing
+the buffers, same seeds: 1%/1% and 0.5%/0.5% both worked exactly as
+the mechanism predicts -- avg loss shrinks monotonically as the stop
+buffer narrows (-2.42% -> -1.58% -> -0.94%) -- but net strategy_return
+stayed flat at ~breakeven all three ways (-0.02%, -0.01%, -0.02%), and
+0.5%/0.5% actually had the WORST win rate (41.7% vs ~51%) and fewest
+net-positive runs (14.3% vs 28.6%) since a tighter stop gets hit by
+noise more often. The buffer-symmetry diagnosis was real and mechanically
+verified, but closing it doesn't move the bottom line -- win-size and
+win-rate trade off against each other almost exactly. Left the live
+constants unchanged (2%/0.5%). The actual conclusion isn't "which
+buffer number is right" -- it's that a no-drift GBM random walk has no
+exploitable structure by construction, so no combination of mechanical
+stop/target rules can show a real edge against it. Whether this
+strategy has real edge is a question only real price data (with real
+whale/sentiment/news signal content GBM can't fabricate) can answer,
+which is exactly what real paper trading is for. Don't keep re-tuning
+these constants against calibrate.py's synthetic output looking for a
+number that "fixes" the return -- see calibrate.py's own docstring on
+being a diagnostic, not a tuner."""
 
 from __future__ import annotations
 
