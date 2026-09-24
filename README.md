@@ -172,9 +172,19 @@ gerçek bir haberdeki "Hack VC" (bir girişim sermayesi şirketi) ismiyle
 yanlışlıkla eşleşip saatlerce `accumulation` sinyallerini bastırmış —
 `status.py` ile yapılan eleştirel bir inceleme sırasında bulundu.
 
+**Huobi/HTX kapatıldı (deferred değil, structural exclusion).** Üçüncü
+pass'te Huobi'nin kendi resmi imzalı proof-of-reserves listesi bulundu
+(DefiLlama → github.com/huobiapi/Tool-Node.js-VerifyAddress) — otoritesi
+önceki iki denemenin (etiket taraması, FUNDED BY zinciri) çok üstünde.
+Listedeki 3 Ethereum adresinin hepsi canlı USDT/USDC bakiyesi için
+kontrol edildi: **üçü de 0 USDT, 0 USDC.** Huobi'nin gerçek stablecoin
+hacmi neredeyse tamamen TRON (TRC20) üzerinden akıyor — bu proje sadece
+Ethereum mainnet taradığı için (`onchain.py`), Huobi'nin kendi resmi
+kaynağı bile bu projenin izleyebileceği bir şey olmadığını doğruladı.
+Zincir kapsamı genişlemedikçe yeniden açılmayacak.
+
 **Sıradaki:** İlk gerçek kağıt pozisyonların açılıp kapanmasını bekleme
-(Kademe 3 "strong" eşiğine ulaşan aday nadir); Huobi/HTX iki bağımsız
-yöntemle denendi, bulunamadı, ertelendi.
+(Kademe 3 "strong" eşiğine ulaşan aday nadir).
 
 | Aşama | Durum |
 |---|---|
