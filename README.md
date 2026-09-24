@@ -155,7 +155,23 @@ başarı yoksa, `CIRCUIT_BREAKER_COOLDOWN_MINUTES` (30) dk boyunca
 sonraki döngü otomatik olarak ücretsiz "prob" deniyor ve başarı olursa
 devre kendiliğinden kapanıyor. Kalıcı bir engelleme değil, sadece
 bilinen-tükenmiş bir kotaya karşı her döngüde tekrar tekrar 68s
-harcamayı önlüyor.
+harcamayı önlüyor. Devre kesicinin gerçekten çalıştığı `ai_call_log`
+zaman damgalarıyla doğrulandı: devreye girmeden önce ~15 dk'da bir,
+girdikten sonra ~45 dk'da bir deneme (30 dk soğuma + döngü aralığı).
+
+**stderr kayıp sorunu bulundu ve düzeltildi.** Kademe 2'de gerçek bir
+başarısızlık patlaması (%61'e düşüş, art arda ~10 hata, "non-zero exit,
+boş stderr") araştırılırken ortaya çıktı: zamanlanmış görev
+`WshShell.Run` ile başlatıldığı için başlattığı sürecin stderr'i hiçbir
+yere gitmiyordu — her `[uyarı]` mesajı (Kademe 1/2/3 hataları dahil)
+sessizce kayboluyordu, `ai_call_log`'un kendi kısaltılmış stderr
+özetinden başka hiçbir iz kalmıyordu. İki parçalı düzeltme: (1)
+`analysis.py`/`classify.py`'nin hata mesajları artık stderr boşsa
+stdout'a düşüyor (`register-task.ps1`'i yeniden çalıştırmadan da işe
+yarar), (2) `register-task.ps1` artık `cmd /c ... 2>>data\observer-stderr.log`
+üzerinden çalışıyor, böylece tüm `[uyarı]` mesajları kalıcı olarak
+yakalanıyor (mevcut zamanlanmış görev bunu almak için yeniden
+kaydedilmeli: `.\scripts\register-task.ps1`).
 
 **Pencere sorunu kökten çözüldü** (4 denemeden sonra). Gerçek neden:
 `hermes.exe` kendi içinde ayrı bir `conhost.exe` ve kendi Python

@@ -115,3 +115,32 @@ def test_call_claude_raises_when_executable_missing(monkeypatch):
     monkeypatch.setattr(analysis, "_discover_claude", lambda: None)
     with pytest.raises(analysis.AnalysisError):
         analysis._call_claude("irrelevant prompt")
+
+
+def test_call_claude_falls_back_to_stdout_when_stderr_empty_on_failure(monkeypatch):
+    """Real 2026-09-24 case: a burst of scheduled-run failures left nothing
+    to diagnose because stderr happened to be empty and stdout was never
+    looked at. The error message should surface whatever's actually there."""
+    class _FakeCompleted:
+        returncode = 1
+        stdout = "some diagnostic detail on stdout"
+        stderr = ""
+
+    monkeypatch.setattr(analysis, "_discover_claude", lambda: "/fake/claude")
+    monkeypatch.setattr(analysis, "run_hidden_and_reap", lambda *a, **k: _FakeCompleted())
+
+    with pytest.raises(analysis.AnalysisError, match="some diagnostic detail on stdout"):
+        analysis._call_claude("irrelevant prompt")
+
+
+def test_call_claude_reports_no_output_when_both_streams_empty(monkeypatch):
+    class _FakeCompleted:
+        returncode = 1
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(analysis, "_discover_claude", lambda: "/fake/claude")
+    monkeypatch.setattr(analysis, "run_hidden_and_reap", lambda *a, **k: _FakeCompleted())
+
+    with pytest.raises(analysis.AnalysisError, match=r"\(çıktı yok\)"):
+        analysis._call_claude("irrelevant prompt")

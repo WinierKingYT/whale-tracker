@@ -84,7 +84,11 @@ def _call_hermes(prompt: str) -> str:
     except (OSError, subprocess.TimeoutExpired) as error:
         raise ClassificationError("hermes CLI invocation failed") from error
     if completed.returncode != 0:
-        raise ClassificationError(f"hermes CLI returned non-zero: {completed.stderr[-200:]}")
+        # Same observability gap as analysis.py's _call_claude -- scheduled
+        # runs discard both streams, so fall back to stdout when stderr is
+        # empty rather than losing the failure reason entirely.
+        detail = completed.stderr[-200:].strip() or completed.stdout[-200:].strip() or "(çıktı yok)"
+        raise ClassificationError(f"hermes CLI returned non-zero (exit {completed.returncode}): {detail}")
     return completed.stdout.strip()
 
 

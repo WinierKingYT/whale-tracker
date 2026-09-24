@@ -81,7 +81,15 @@ def _call_claude(prompt: str, *, model: str = "sonnet", system_prompt: str = _SY
     except (OSError, subprocess.TimeoutExpired) as error:
         raise AnalysisError("claude CLI invocation failed") from error
     if completed.returncode != 0:
-        raise AnalysisError(f"claude CLI returned non-zero: {completed.stderr[-200:]}")
+        # Scheduled runs discard both streams (WshShell.Run has nowhere to
+        # send them -- see scripts/register-task.ps1), and error_reason is
+        # the only trace that survives into ai_call_log. A real 2026-09-24
+        # burst of failures left nothing to diagnose after the fact because
+        # stderr happened to be empty and stdout was never even looked at
+        # -- fall back to stdout so the next occurrence is actually
+        # diagnosable instead of silently unobservable again.
+        detail = completed.stderr[-200:].strip() or completed.stdout[-200:].strip() or "(çıktı yok)"
+        raise AnalysisError(f"claude CLI returned non-zero (exit {completed.returncode}): {detail}")
     try:
         envelope = json.loads(completed.stdout)
     except json.JSONDecodeError as error:

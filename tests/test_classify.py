@@ -88,3 +88,35 @@ def test_circuit_opens_after_threshold_consecutive_failures_within_cooldown():
 def test_circuit_closes_again_once_cooldown_elapses():
     storage = _FakeStorage([_failed_call(45), _failed_call(60), _failed_call(75)])
     assert classify.kademe1_circuit_open(storage) is False
+
+
+def test_call_hermes_falls_back_to_stdout_when_stderr_empty_on_failure(monkeypatch, tmp_path):
+    hermes_path = tmp_path / "hermes.exe"
+    hermes_path.write_text("")
+
+    class _FakeCompleted:
+        returncode = 1
+        stdout = "some diagnostic detail on stdout"
+        stderr = ""
+
+    monkeypatch.setattr(classify, "_HERMES_PATH", str(hermes_path))
+    monkeypatch.setattr(classify, "run_hidden_and_reap", lambda *a, **k: _FakeCompleted())
+
+    with pytest.raises(classify.ClassificationError, match="some diagnostic detail on stdout"):
+        classify._call_hermes("irrelevant prompt")
+
+
+def test_call_hermes_reports_no_output_when_both_streams_empty(monkeypatch, tmp_path):
+    hermes_path = tmp_path / "hermes.exe"
+    hermes_path.write_text("")
+
+    class _FakeCompleted:
+        returncode = 1
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(classify, "_HERMES_PATH", str(hermes_path))
+    monkeypatch.setattr(classify, "run_hidden_and_reap", lambda *a, **k: _FakeCompleted())
+
+    with pytest.raises(classify.ClassificationError, match=r"\(çıktı yok\)"):
+        classify._call_hermes("irrelevant prompt")
