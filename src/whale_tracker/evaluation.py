@@ -55,7 +55,7 @@ def evaluate_paper_trading(storage: Any) -> dict[str, Any]:
     if not closed:
         return {
             "closed_position_count": 0, "open_position_count": open_count,
-            "insufficient_data": True,
+            "insufficient_data": True, "ready_for_asama5": False,
         }
 
     wins = [p for p in closed if p["pnl_usd"] > 0]
@@ -110,10 +110,11 @@ def evaluate_paper_trading(storage: Any) -> dict[str, Any]:
             "total_pnl_usd": round(sum(p["pnl_usd"] for p in symbol_closed), 2),
         }
 
+    insufficient_data = len(closed) < MIN_POSITIONS_FOR_CONFIDENCE
     return {
         "closed_position_count": len(closed),
         "open_position_count": open_count,
-        "insufficient_data": len(closed) < MIN_POSITIONS_FOR_CONFIDENCE,
+        "insufficient_data": insufficient_data,
         "win_rate": round(win_rate, 4),
         "avg_win_pct": round(avg_win_pct, 4) if avg_win_pct is not None else None,
         "avg_loss_pct": round(avg_loss_pct, 4) if avg_loss_pct is not None else None,
@@ -124,6 +125,14 @@ def evaluate_paper_trading(storage: Any) -> dict[str, Any]:
         "btc_hold_return_pct": btc_hold_return_pct,
         "beats_btc_hold": beats_btc_hold,
         "by_symbol": by_symbol,
+        # PROJECT-PLAN.md's own stated gate, made explicit rather than
+        # left as something a human has to remember to check: enough
+        # sample size (not insufficient_data) AND beats BTC-hold (section
+        # 9 -- "'sadece BTC tutmak' yeniyorsa gerçek parayı artırmayız").
+        # Deliberately doesn't add its own extra numeric thresholds (a
+        # minimum win rate, a drawdown cap) beyond what the plan itself
+        # states -- this is the plan's gate operationalized, not a new one.
+        "ready_for_asama5": (not insufficient_data) and beats_btc_hold is True,
     }
 
 
@@ -169,6 +178,17 @@ def render_evaluation_report(scorecard: dict[str, Any]) -> str:
                 f"  {symbol}: {stats['closed_position_count']} pozisyon, "
                 f"isabet={stats['win_rate']:.1%}, P&L=${stats['total_pnl_usd']:,.2f}"
             )
+
+    lines.append("")
+    if scorecard["ready_for_asama5"]:
+        lines.append(
+            f"[HAZIR] Aşama 5 (yarı otomatik) için plan'ın kendi eşiği karşılanıyor: "
+            f"yeterli örneklem (>={MIN_POSITIONS_FOR_CONFIDENCE}) ve BTC-hold'u geçiyor. "
+            f"Bu otomatik onay değil, yalnızca bir ölçüm -- karar hâlâ kullanıcının."
+        )
+    else:
+        reason = "yetersiz örneklem" if scorecard["insufficient_data"] else "BTC-hold'u geçmiyor"
+        lines.append(f"[HENÜZ HAZIR DEĞİL] Aşama 5 eşiği karşılanmıyor ({reason}).")
     return "\n".join(lines)
 
 

@@ -176,3 +176,56 @@ def test_render_report_shows_full_scorecard(tmp_path):
     assert "BTC-hold" in report
     assert "EVET" in report or "HAYIR" in report
     assert "UYARI" not in report  # enough positions, no low-confidence warning
+
+
+def test_ready_for_asama5_true_when_enough_data_and_beats_btc_hold(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        _seed_btc_price(db, 70000.0, minutes_ago=100)
+        # end snapshot must be at-or-before the positions' own closed_at
+        # (5 min ago) -- see market_snapshot_near's own docstring. BTC
+        # itself is flat/down (-1.43%) while the strategy (10 trades,
+        # $100 each of $10,000 capital, +5% price move -> +0.5% portfolio
+        # return) is positive -- position sizing means per-trade % moves
+        # don't translate 1:1 to portfolio %, so BTC-hold has to be small
+        # or negative here for the strategy to actually beat it.
+        _seed_btc_price(db, 69000.0, minutes_ago=6)  # BTC-hold: -1.43%
+        for _ in range(evaluation.MIN_POSITIONS_FOR_CONFIDENCE):
+            _open_and_close(db, entry_price=70000.0, exit_price=73500.0, status="take_profit",
+                             opened_minutes_ago=10, closed_minutes_ago=5)
+        scorecard = evaluation.evaluate_paper_trading(db)
+
+    assert scorecard["ready_for_asama5"] is True
+    assert "[HAZIR]" in evaluation.render_evaluation_report(scorecard)
+
+
+def test_ready_for_asama5_false_when_insufficient_data(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        _seed_btc_price(db, 70000.0, minutes_ago=100)
+        _seed_btc_price(db, 70500.0, minutes_ago=1)
+        _open_and_close(db, entry_price=70000.0, exit_price=73500.0, status="take_profit",
+                         opened_minutes_ago=10, closed_minutes_ago=5)  # only 1, below the floor
+        scorecard = evaluation.evaluate_paper_trading(db)
+
+    assert scorecard["ready_for_asama5"] is False
+    assert "[HENÜZ HAZIR DEĞİL]" in evaluation.render_evaluation_report(scorecard)
+
+
+def test_ready_for_asama5_false_when_not_beating_btc_hold(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        _seed_btc_price(db, 70000.0, minutes_ago=100)
+        # end snapshot must be at-or-before the positions' own closed_at
+        # (5 min ago) -- see market_snapshot_near's own docstring.
+        _seed_btc_price(db, 90000.0, minutes_ago=6)  # BTC-hold: +28.6%, far above the trades
+        for _ in range(evaluation.MIN_POSITIONS_FOR_CONFIDENCE):
+            _open_and_close(db, entry_price=70000.0, exit_price=70700.0, status="take_profit",
+                             opened_minutes_ago=10, closed_minutes_ago=5)  # +1% per trade
+        scorecard = evaluation.evaluate_paper_trading(db)
+
+    assert scorecard["beats_btc_hold"] is False
+    assert scorecard["ready_for_asama5"] is False
+
+
+def test_ready_for_asama5_false_with_zero_closed_positions(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        scorecard = evaluation.evaluate_paper_trading(db)
+    assert scorecard["ready_for_asama5"] is False
