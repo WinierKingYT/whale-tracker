@@ -199,6 +199,23 @@ Ethereum mainnet taradığı için (`onchain.py`), Huobi'nin kendi resmi
 kaynağı bile bu projenin izleyebileceği bir şey olmadığını doğruladı.
 Zincir kapsamı genişlemedikçe yeniden açılmayacak.
 
+**Aşama 5 iskeleti eklendi** (`approval.py`). Section 8'in "yarı
+otomatik: küçük gerçek parayla, her işlemi kullanıcı onaylar" satırının
+kod karşılığı — ama **hiçbir aşamada işlem yürütmüyor**, "Kritik sınır"
+burada da kategorik. Bir Kademe 3 önerisi, Risk Guard'ı geçtikten sonra
+(paper trading'e ek olarak, onun yerine değil — `ready_for_asama5`
+ölçümü kapanan pozisyonların sürmesine bağlı) bir `approval_requests`
+satırı olarak kaydediliyor: durum hep `pending` başlıyor, yalnızca
+`python -m whale_tracker.approval approve/reject <id>` ile insan eliyle
+kararlaştırılıyor. İki bağımsız kapı var, ikisi de tutmalı: kod
+tarafında `ASAMA5_ENABLED` (varsayılan kapalı, açmak bilinçli bir
+commit gerektiriyor) ve `evaluation.ready_for_asama5` (planın kendi
+istatistiksel eşiği). "Onaylandı" durumu bile yalnızca "kullanıcının
+kendi ayrı, onaylı bot/script'i artık işlem yapabilir" demek —
+buradaki hiçbir kod borsa API'sine dokunmuyor. `ready_for_asama5` henüz
+gerçek veriyle dolmadığı için bu tamamen bir iskelet, üretimde şu an
+etkisiz (`ASAMA5_ENABLED = False`).
+
 **Sıradaki:** İlk gerçek kağıt pozisyonların açılıp kapanmasını bekleme
 (Kademe 3 "strong" eşiğine ulaşan aday nadir).
 
@@ -208,7 +225,7 @@ Zincir kapsamı genişlemedikçe yeniden açılmayacak.
 | 2. Sinyal üretici | ✅ 5 sinyal + Kademe 2 derin analiz + Kademe 3 kağıt öneri, gerçek veriyle doğrulanmadı henüz |
 | 3. Paper trading | ✅ kod tamam, simülasyonla doğrulandı, gerçek pozisyon henüz açılmadı (Kademe 3 eşiği nadir) |
 | 4. Değerlendirme | ✅ ölçüm altyapısı hazır, simülasyonla doğrulandı, henüz yeterli gerçek kapanmış pozisyon yok |
-| 5. Yarı otomatik (onaylı) | beklemede |
+| 5. Yarı otomatik (onaylı) | ✅ kod iskeleti hazır (`approval.py`), `ASAMA5_ENABLED=False` — üretimde etkisiz, `ready_for_asama5` gerçek veriyle dolunca açılabilir |
 | 6. Otomatik | beklemede |
 
 ## Kritik sınır

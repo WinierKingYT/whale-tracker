@@ -11,6 +11,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from whale_tracker.approval import asama5_active, create_approval_request
 from whale_tracker.paper_trading import check_and_close_positions, open_position, risk_guard_blocks_new_position
 from whale_tracker.report import render_report
 from whale_tracker.signal import generate_candidates
@@ -181,6 +182,20 @@ def run_once(
                                     if position:
                                         db.insert_paper_position(position)
                                         candidate["paper_position"] = position
+
+                                    # Aşama 5 skeleton (see approval.py):
+                                    # additive, never a replacement for
+                                    # paper trading -- evaluation.py's own
+                                    # ready_for_asama5 measurement depends
+                                    # on paper positions continuing to
+                                    # close regardless. ASAMA5_ENABLED is
+                                    # off by default, so this is a no-op
+                                    # until deliberately turned on.
+                                    if asama5_active(db):
+                                        create_approval_request(
+                                            db, candidate_id, proposal, markets[symbol]["mark_price"],
+                                            deep_context["technical_snapshot"], symbol=symbol,
+                                        )
                         except ProposalError as error:
                             db.insert_ai_call_log(
                                 "kademe3_opus", attempted=1, succeeded=0,

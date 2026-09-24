@@ -148,6 +148,21 @@ CREATE TABLE IF NOT EXISTS ai_call_log (
     called_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ai_call_log_type_time ON ai_call_log(call_type, called_at);
+
+CREATE TABLE IF NOT EXISTS approval_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_candidate_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    stop_loss_price REAL NOT NULL,
+    take_profit_price REAL NOT NULL,
+    position_size_usd REAL NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    decided_at TEXT,
+    note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status);
 """
 
 
@@ -366,6 +381,47 @@ class Storage:
 
     def all_paper_positions(self) -> list[dict[str, Any]]:
         rows = self._conn.execute("SELECT * FROM paper_positions ORDER BY opened_at").fetchall()
+        return [dict(row) for row in rows]
+
+    def insert_approval_request(self, request: dict[str, Any]) -> int:
+        """Asama 5 skeleton (see approval.py) -- records that the system
+        proposed a real-money trade and is waiting on a human decision.
+        Never itself a trade; status starts 'pending' and only becomes
+        'approved'/'rejected' via decide_approval_request, always by an
+        explicit human action (approval.py's CLI), never automatically."""
+        payload = dict(request)
+        cursor = self._conn.execute(
+            """
+            INSERT INTO approval_requests
+                (signal_candidate_id, symbol, entry_price, stop_loss_price, take_profit_price,
+                 position_size_usd, status, created_at)
+            VALUES (:signal_candidate_id, :symbol, :entry_price, :stop_loss_price, :take_profit_price,
+                    :position_size_usd, :status, :created_at)
+            """,
+            payload,
+        )
+        self._conn.commit()
+        return int(cursor.lastrowid)
+
+    def pending_approval_requests(self) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM approval_requests WHERE status = 'pending' ORDER BY created_at"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_approval_request(self, request_id: int) -> dict[str, Any] | None:
+        row = self._conn.execute("SELECT * FROM approval_requests WHERE id = ?", (request_id,)).fetchone()
+        return dict(row) if row else None
+
+    def decide_approval_request(self, request_id: int, *, status: str, decided_at: str, note: str | None = None) -> None:
+        self._conn.execute(
+            "UPDATE approval_requests SET status = ?, decided_at = ?, note = ? WHERE id = ?",
+            (status, decided_at, note, request_id),
+        )
+        self._conn.commit()
+
+    def all_approval_requests(self) -> list[dict[str, Any]]:
+        rows = self._conn.execute("SELECT * FROM approval_requests ORDER BY created_at").fetchall()
         return [dict(row) for row in rows]
 
     def insert_ai_call_log(

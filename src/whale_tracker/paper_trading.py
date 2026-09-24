@@ -99,18 +99,16 @@ def risk_guard_blocks_new_position(storage: Any, *, now: datetime | None = None)
     return None
 
 
-def open_position(
-    candidate_id: int, proposal: dict[str, Any], market_price: float, technical: dict[str, Any] | None,
-    *, symbol: str = "BTCUSDT", now: datetime | None = None,
-) -> dict[str, Any] | None:
-    """Open a paper position from a Kademe 3 long_candidate proposal.
-    Returns None (does not open) when the risk/reward setup doesn't make
-    sense -- e.g. price already through the stop-loss or past the
-    take-profit level -- rather than opening a broken position.
-
-    `now` defaults to real wall-clock time (production) but is explicit
-    so simulate.py can pass its own advancing simulated clock -- see
-    check_and_close_positions' docstring for why this seam matters."""
+def compute_exit_levels(
+    proposal: dict[str, Any], market_price: float, technical: dict[str, Any] | None,
+) -> tuple[float, float] | None:
+    """Return (stop_loss_price, take_profit_price) for a Kademe 3
+    long_candidate proposal, or None when the setup doesn't make sense --
+    e.g. no resistance to derive a target from, or price already through
+    the stop-loss or past the take-profit level. Shared by open_position
+    (paper) and approval.create_approval_request (Aşama 5) so a real-money
+    proposal is judged by the exact same rule as its paper counterpart,
+    never a separately-maintained copy that could drift."""
     if proposal["action"] != "long_candidate":
         return None
     if not technical or not technical.get("resistance"):
@@ -119,7 +117,26 @@ def open_position(
     stop_loss_price = proposal["stop_loss_price"]
     take_profit_price = round(technical["resistance"] * (1 - TAKE_PROFIT_RESISTANCE_BUFFER_PCT), 2)
     if not (stop_loss_price < market_price < take_profit_price):
-        return None  # broken setup: already past an exit level, don't open it
+        return None  # broken setup: already past an exit level
+
+    return stop_loss_price, take_profit_price
+
+
+def open_position(
+    candidate_id: int, proposal: dict[str, Any], market_price: float, technical: dict[str, Any] | None,
+    *, symbol: str = "BTCUSDT", now: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Open a paper position from a Kademe 3 long_candidate proposal.
+    Returns None (does not open) when the risk/reward setup doesn't make
+    sense -- see compute_exit_levels.
+
+    `now` defaults to real wall-clock time (production) but is explicit
+    so simulate.py can pass its own advancing simulated clock -- see
+    check_and_close_positions' docstring for why this seam matters."""
+    exits = compute_exit_levels(proposal, market_price, technical)
+    if exits is None:
+        return None
+    stop_loss_price, take_profit_price = exits
 
     return {
         "signal_candidate_id": candidate_id,
