@@ -324,7 +324,12 @@ def fetch_exchange_flow_events(
     # must not silently reuse chunks fetched against the old one.
     wallet_fingerprint = hashlib.sha1("".join(sorted(labels)).encode()).hexdigest()[:8]
     all_events: list[dict[str, Any]] = []
-    chunk_starts = range(start_block, end_block + 1, chunk_blocks)
+    # Chunks sit on absolute multiples of chunk_blocks, not relative to
+    # this run's start, so a longer or later period reuses every chunk it
+    # shares with an earlier run. A chunk cut short by end_block gets its
+    # own (shorter) file name, so it can never be mistaken for the full
+    # chunk later.
+    chunk_starts = range((start_block // chunk_blocks) * chunk_blocks, end_block + 1, chunk_blocks)
     for index, chunk_start in enumerate(chunk_starts, 1):
         chunk_end = min(chunk_start + chunk_blocks - 1, end_block)
         name = f"flow-{wallet_fingerprint}/{chunk_start}-{chunk_end}-min{int(min_usd)}.json"
@@ -335,4 +340,4 @@ def fetch_exchange_flow_events(
         all_events.extend(_cached(name, fetch))
         if progress and (alchemy or index % 10 == 0 or index == len(chunk_starts)):
             progress(f"zincir üstü akış: {index}/{len(chunk_starts)} parça")
-    return all_events
+    return [e for e in all_events if start_block <= e["block_number"] <= end_block]

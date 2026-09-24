@@ -241,3 +241,60 @@ def test_baseline_returns_none_when_period_too_short_to_shift():
     rows = _sawtooth(150)
     positions = [{"symbol": "BTCUSDT", "opened_at": rows[0]["observed_at"], "pnl_pct": 0.01}]
     assert baseline.random_entry_baseline(_HistoryStorage(rows), positions) is None
+
+
+def test_rolling_net_inflow_matches_signal_py_window(tmp_path):
+    from whale_tracker import signal
+    from whale_tracker.backtest.signal_ic import rolling_net_inflow
+
+    events = [
+        _event(-30 * 60) | {"observed_at": (DAY - timedelta(hours=30)).isoformat()},  # outside 24h at t
+        _event(0) | {"tx_hash": "0xa", "observed_at": (DAY - timedelta(hours=2)).isoformat()},
+        _event(0, to_exchange="DEX: Uniswap") | {"tx_hash": "0xb", "observed_at": (DAY - timedelta(hours=1)).isoformat()},
+        _event(0, to_exchange=None) | {"tx_hash": "0xc", "from_known_exchange": "okx", "amount_usd_estimate": 2e6,
+                                       "observed_at": (DAY - timedelta(hours=1)).isoformat()},
+    ]
+    with Storage(tmp_path / "f.db") as db:
+        for e in events:
+            db.insert_onchain_event({k: v for k, v in e.items() if k != "block_timestamp"})
+        expected = signal._aggregate_exchange_flow(db, hours=24, now=DAY)["net_inflow_usd"]
+    assert rolling_net_inflow(events, [DAY]) == [expected] == [5_000_000.0 - 2_000_000.0]
+
+
+class _IcStorage:
+    def __init__(self, rows, events):
+        self._rows, self._events = rows, events
+
+    def price_and_levels_history(self, symbol):
+        return self._rows
+
+    def recent_onchain_events(self, limit=50):
+        return self._events
+
+
+def test_information_coefficient_finds_a_signal_that_drives_returns():
+    import random as _random
+    from whale_tracker.backtest.signal_ic import information_coefficient
+
+    rng = _random.Random(4)
+    rows, events, price = [], [], 100.0
+    for block in range(20):  # 20 blocks of 3 days, each with a persistent direction
+        direction = rng.choice((1, -1))
+        for i in range(288):
+            moment = DAY + timedelta(minutes=15 * (block * 288 + i))
+            if i % 48 == 0:  # an exchange flow every 12h in the block's direction
+                tag = {"from_known_exchange": "binance", "to_known_exchange": None} if direction > 0 else {}
+                events.append(_event(0) | tag | {"tx_hash": f"0x{block}-{i}", "observed_at": moment.isoformat()})
+            price *= 1 + direction * 0.0002
+            rows.append({"observed_at": moment.isoformat(), "mark_price": price, "support": 1, "resistance": 2})
+    result = information_coefficient(_IcStorage(rows, events), "BTCUSDT", horizon_cycles=96, trials=200)
+    assert result["ic"] > 0.5
+    assert result["independent_windows"] > 50
+    assert result["mean_forward_after_accumulation"] > 0 > result["mean_forward_after_distribution"]
+
+
+def test_information_coefficient_none_when_too_short():
+    from whale_tracker.backtest.signal_ic import information_coefficient
+
+    rows = [{"observed_at": (DAY + timedelta(minutes=15 * i)).isoformat(), "mark_price": 100.0} for i in range(200)]
+    assert information_coefficient(_IcStorage(rows, []), "BTCUSDT", horizon_cycles=96) is None

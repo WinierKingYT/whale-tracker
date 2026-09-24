@@ -34,6 +34,7 @@ from whale_tracker.backtest.replay import (
     HistoricalSentimentReplay,
     NoNewsReplay,
 )
+from whale_tracker.backtest.signal_ic import information_coefficient
 from whale_tracker.evaluation import evaluate_paper_trading, render_evaluation_report
 from whale_tracker.observe import TRACKED_SYMBOLS
 from whale_tracker.simulate import DEFAULT_CYCLE_MINUTES, run_cycle
@@ -43,6 +44,7 @@ from whale_tracker.storage import Storage
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[3] / "data" / "backtest.db"
 DEFAULT_DAYS = 30
+IC_HORIZON_CYCLES = (96, 288)  # 24h and 72h ahead
 
 LIMITATIONS = (
     "Kademe 2/3 gerçek Sonnet/Opus değil, simulate.py'nin sentetik vekilleri (mekanik güven >= 0.7 -> 'strong'): "
@@ -117,7 +119,12 @@ def replay(history: dict[str, Any], start: datetime, days: int, db_path: Path) -
         closed = [p for p in db.all_paper_positions() if p["status"] != "open"]
         baseline = random_entry_baseline(db, closed)
         exit_mix = Counter(p["status"] for p in closed)
-    return {"counts": counts, "scorecard": scorecard, "baseline": baseline, "exit_mix": exit_mix}
+        _progress("sinyal seviyesi test (bilgi katsayısı)")
+        ics = [
+            ic for symbol in history["markets"] for horizon in IC_HORIZON_CYCLES
+            if (ic := information_coefficient(db, symbol, horizon_cycles=horizon)) is not None
+        ]
+    return {"counts": counts, "scorecard": scorecard, "baseline": baseline, "exit_mix": exit_mix, "ics": ics}
 
 
 def render(result: dict[str, Any], *, start: datetime, end: datetime) -> str:
@@ -148,6 +155,28 @@ def render(result: dict[str, Any], *, start: datetime, end: datetime) -> str:
             else "sinyalin zamanlaması rastgele girişten ayırt edilemiyor (bu dönem, bu veriyle)"
         )
         lines.append(f"Sonuç: {verdict}.")
+        lines.append(
+            "Not: aday neredeyse her döngüde çıktığı için pozisyonların NE ZAMAN açıldığını çoğunlukla Risk Guard'ın "
+            "3 pozisyon sınırı belirliyor -- sinyalin kendisi için aşağıdaki bilgi katsayısı testi daha doğrudan."
+        )
+
+    lines += ["", "=== Sinyal seviyesi test: 24s net borsa çıkışı, sonraki getiriyi tahmin ediyor mu? ==="]
+    for ic in result["ics"]:
+        after_acc = ic["mean_forward_after_accumulation"]
+        after_dist = ic["mean_forward_after_distribution"]
+        spread = (
+            f"; birikim sonrası ort. {after_acc:+.2%}, dağıtım sonrası {after_dist:+.2%}"
+            if after_acc is not None and after_dist is not None else ""
+        )
+        lines.append(
+            f"{ic['symbol']} {ic['horizon_hours']:.0f}s: IC={ic['ic']:+.3f} (p={ic['p_value']:.3f}), "
+            f"~{ic['independent_windows']:.0f} bağımsız pencere -> ancak |IC| >= {ic['detectable_ic']:.2f} ayırt edilebilir{spread}"
+        )
+    if result["ics"] and max(ic["detectable_ic"] for ic in result["ics"]) > 0.3:
+        lines.append(
+            "[UYARI] Bu uzunluktaki veriyle yalnızca gerçekçi olmayan büyüklükte bir kenar yakalanabilir; "
+            "'kenar bulunamadı' burada 'kenar yok' demek değil. Daha uzun dönem için --days artır."
+        )
     lines += ["", "Sınırlamalar:"] + [f"  - {item}" for item in LIMITATIONS]
     return "\n".join(lines)
 
