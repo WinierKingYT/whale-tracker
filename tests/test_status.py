@@ -67,3 +67,25 @@ def test_render_status_includes_db_path_and_key_numbers(tmp_path):
     assert str(db_path) in report
     assert "Sinyal adayı" in report
     assert "Kağıt pozisyon" in report
+
+
+def test_render_status_shows_ai_call_quota_usage(tmp_path):
+    db_path = tmp_path / "t.db"
+    with Storage(db_path) as db:
+        db.insert_ai_call_log(
+            "kademe2_sonnet", attempted=4, succeeded=3, duration_ms=2000.0,
+            error_reason="some failed", called_at=_now(),
+        )
+        status = status_module.compute_status(db)
+    report = status_module.render_status(status, db_path=db_path)
+    assert "AI çağrıları" in report
+    assert "kademe2_sonnet" in report
+    assert "3/4" in report
+
+
+def test_render_status_omits_ai_section_when_no_calls_logged(tmp_path):
+    db_path = tmp_path / "t.db"
+    with Storage(db_path) as db:
+        status = status_module.compute_status(db)
+    report = status_module.render_status(status, db_path=db_path)
+    assert "AI çağrıları" not in report

@@ -69,6 +69,7 @@ def compute_status(db: Storage) -> dict[str, Any]:
             "closed": _count(db, "SELECT COUNT(*) FROM paper_positions WHERE status != 'open'"),
             "by_status": _group_counts(db, "paper_positions", "status"),
         },
+        "ai_calls": db.ai_call_log_summary(),
     }
 
 
@@ -107,6 +108,18 @@ def render_status(status: dict[str, Any], *, db_path: Path) -> str:
     lines.append(f"\nKağıt pozisyon: açık={positions['open']}, kapanmış={positions['closed']}")
     if positions["by_status"]:
         lines.append(f"  durum: {positions['by_status']}")
+
+    ai_calls = status["ai_calls"]
+    if ai_calls:
+        lines.append("\nAI çağrıları (kota kullanımı):")
+        for row in ai_calls:
+            rate = row["succeeded"] / row["attempted"] if row["attempted"] else 0.0
+            avg_s = row["avg_duration_ms"] / 1000 if row["avg_duration_ms"] else 0.0
+            warning = f", {row['failed_cycles']} döngü sıfır başarı" if row["failed_cycles"] else ""
+            lines.append(
+                f"  {row['call_type']}: {row['cycles']} döngü, {row['succeeded']}/{row['attempted']} başarılı "
+                f"(%{rate*100:.0f}), ort. {avg_s:.1f}s{warning}"
+            )
 
     return "\n".join(lines)
 

@@ -112,3 +112,34 @@ def test_final_proposal_links_to_signal_candidate(tmp_path):
         assert row["action"] == "long_candidate"
         assert row["stop_loss_price"] == 68600.0
         assert row["conviction"] == "high"
+
+
+def test_ai_call_log_summary_aggregates_by_call_type(tmp_path):
+    with Storage(tmp_path / "test.db") as db:
+        db.insert_ai_call_log(
+            "kademe2_sonnet", attempted=1, succeeded=1, duration_ms=1000.0,
+            error_reason=None, called_at=_now(),
+        )
+        db.insert_ai_call_log(
+            "kademe2_sonnet", attempted=1, succeeded=0, duration_ms=500.0,
+            error_reason="rate limited", called_at=_now(),
+        )
+        db.insert_ai_call_log(
+            "kademe1_hermes", attempted=5, succeeded=5, duration_ms=8000.0,
+            error_reason=None, called_at=_now(),
+        )
+
+        summary = {row["call_type"]: row for row in db.ai_call_log_summary()}
+
+    assert summary["kademe2_sonnet"]["cycles"] == 2
+    assert summary["kademe2_sonnet"]["attempted"] == 2
+    assert summary["kademe2_sonnet"]["succeeded"] == 1
+    assert summary["kademe2_sonnet"]["failed_cycles"] == 1
+    assert summary["kademe2_sonnet"]["avg_duration_ms"] == 750.0
+    assert summary["kademe1_hermes"]["attempted"] == 5
+    assert summary["kademe1_hermes"]["failed_cycles"] == 0
+
+
+def test_ai_call_log_summary_empty_by_default(tmp_path):
+    with Storage(tmp_path / "test.db") as db:
+        assert db.ai_call_log_summary() == []

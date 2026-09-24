@@ -137,6 +137,17 @@ CREATE TABLE IF NOT EXISTS paper_positions (
     pnl_pct REAL
 );
 CREATE INDEX IF NOT EXISTS idx_paper_positions_status ON paper_positions(status);
+
+CREATE TABLE IF NOT EXISTS ai_call_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    call_type TEXT NOT NULL,
+    attempted INTEGER NOT NULL,
+    succeeded INTEGER NOT NULL,
+    duration_ms REAL NOT NULL,
+    error_reason TEXT,
+    called_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_call_log_type_time ON ai_call_log(call_type, called_at);
 """
 
 
@@ -355,6 +366,45 @@ class Storage:
 
     def all_paper_positions(self) -> list[dict[str, Any]]:
         rows = self._conn.execute("SELECT * FROM paper_positions ORDER BY opened_at").fetchall()
+        return [dict(row) for row in rows]
+
+    def insert_ai_call_log(
+        self, call_type: str, *, attempted: int, succeeded: int, duration_ms: float,
+        error_reason: str | None, called_at: str,
+    ) -> None:
+        """One row per AI call SITE per cycle (e.g. one row for the whole
+        classify_top_events batch, not one row per individual event) --
+        see observe.py for what gets logged where. Exists so status.py can
+        answer "how much of the shared Hermes/Claude quota is this
+        actually using" with real numbers instead of the one-time
+        estimate from when Kademe 2 was first wired up."""
+        self._conn.execute(
+            """
+            INSERT INTO ai_call_log (call_type, attempted, succeeded, duration_ms, error_reason, called_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (call_type, attempted, succeeded, duration_ms, error_reason, called_at),
+        )
+        self._conn.commit()
+
+    def ai_call_log_summary(self) -> list[dict[str, Any]]:
+        """Per call_type: total cycles logged, total attempted/succeeded
+        calls, average duration, and how many cycles had zero successes
+        (a proxy for quota/rate-limit trouble -- see the 2026-09-23
+        Kademe 2 blackout window found via this exact question)."""
+        rows = self._conn.execute(
+            """
+            SELECT call_type,
+                   COUNT(*) AS cycles,
+                   SUM(attempted) AS attempted,
+                   SUM(succeeded) AS succeeded,
+                   AVG(duration_ms) AS avg_duration_ms,
+                   SUM(CASE WHEN attempted > 0 AND succeeded = 0 THEN 1 ELSE 0 END) AS failed_cycles
+            FROM ai_call_log
+            GROUP BY call_type
+            ORDER BY call_type
+            """
+        ).fetchall()
         return [dict(row) for row in rows]
 
     def insert_classification(self, tx_hash: str, log_index: int, classification: dict[str, Any], observed_at: str) -> None:

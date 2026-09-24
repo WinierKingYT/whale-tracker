@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -76,12 +77,22 @@ def run_once(
         # Kademe 1: classify only the largest few events (cost/latency
         # bounded -- see sources/classify.py). A classification failure for
         # any one event is skipped, never fails the run.
+        kademe1_attempted = min(classify_limit, len(onchain_events)) if onchain_events else 0
+        kademe1_started = time.perf_counter()
         classifications = classify_top_events(onchain_events, limit=classify_limit) if onchain_events else {}
         classified_at = datetime.now(UTC).isoformat()
         for index, classification in classifications.items():
             event = onchain_events[index]
             db.insert_classification(event["tx_hash"], event["log_index"], classification, classified_at)
             event["classification"] = classification
+        if kademe1_attempted:
+            kademe1_succeeded = len(classifications)
+            db.insert_ai_call_log(
+                "kademe1_hermes", attempted=kademe1_attempted, succeeded=kademe1_succeeded,
+                duration_ms=(time.perf_counter() - kademe1_started) * 1000,
+                error_reason=None if kademe1_succeeded == kademe1_attempted else "bir veya daha fazla çağrı başarısız",
+                called_at=classified_at,
+            )
 
         # Aşama 2, Sinyal üretici: corroborate the accumulated signals
         # (onchain flow, funding, sentiment, news, technical) into scored
@@ -98,6 +109,7 @@ def run_once(
                 # PROJECT-PLAN.md means -- deep-analyze it, bounded to only
                 # this rare case (see sources/analysis.py's cost note). A
                 # failure here is skipped, same non-fatal contract as Kademe 1.
+                kademe2_started = time.perf_counter()
                 try:
                     deep_context = {
                         "market_snapshot": markets[symbol],
@@ -105,7 +117,13 @@ def run_once(
                         "recent_headlines": new_headlines or db.recent_headlines(limit=5),
                     }
                     analysis = generate_deep_analysis(candidate, deep_context)
-                    db.insert_deep_analysis(candidate_id, analysis, datetime.now(UTC).isoformat())
+                    now_iso = datetime.now(UTC).isoformat()
+                    db.insert_ai_call_log(
+                        "kademe2_sonnet", attempted=1, succeeded=1,
+                        duration_ms=(time.perf_counter() - kademe2_started) * 1000,
+                        error_reason=None, called_at=now_iso,
+                    )
+                    db.insert_deep_analysis(candidate_id, analysis, now_iso)
                     candidate["deep_analysis"] = analysis
 
                     # Kademe 3: only escalate to the rarest, most expensive
@@ -114,9 +132,16 @@ def run_once(
                     # full gate (direction + stop-loss availability checked
                     # there too).
                     if analysis["corroboration_strength"] == "strong":
+                        kademe3_started = time.perf_counter()
                         try:
                             proposal = generate_final_proposal(candidate, analysis, deep_context)
-                            db.insert_final_proposal(candidate_id, proposal, datetime.now(UTC).isoformat())
+                            now_iso = datetime.now(UTC).isoformat()
+                            db.insert_ai_call_log(
+                                "kademe3_opus", attempted=1, succeeded=1,
+                                duration_ms=(time.perf_counter() - kademe3_started) * 1000,
+                                error_reason=None, called_at=now_iso,
+                            )
+                            db.insert_final_proposal(candidate_id, proposal, now_iso)
                             candidate["final_proposal"] = proposal
 
                             # Aşama 3, Paper trading: a real proposal gets a
@@ -132,8 +157,18 @@ def run_once(
                                     db.insert_paper_position(position)
                                     candidate["paper_position"] = position
                         except ProposalError as error:
+                            db.insert_ai_call_log(
+                                "kademe3_opus", attempted=1, succeeded=0,
+                                duration_ms=(time.perf_counter() - kademe3_started) * 1000,
+                                error_reason=str(error)[:200], called_at=datetime.now(UTC).isoformat(),
+                            )
                             print(f"[uyarı] Kademe 3 öneri başarısız: {error}", file=sys.stderr)
                 except AnalysisError as error:
+                    db.insert_ai_call_log(
+                        "kademe2_sonnet", attempted=1, succeeded=0,
+                        duration_ms=(time.perf_counter() - kademe2_started) * 1000,
+                        error_reason=str(error)[:200], called_at=datetime.now(UTC).isoformat(),
+                    )
                     print(f"[uyarı] Kademe 2 analiz başarısız: {error}", file=sys.stderr)
 
         # Every cycle, regardless of whether a new candidate showed up:

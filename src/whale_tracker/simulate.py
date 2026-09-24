@@ -29,6 +29,7 @@ judgment is."""
 from __future__ import annotations
 
 import argparse
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -155,9 +156,23 @@ def run_cycle(
                 "recent_headlines": new_headlines or db.recent_headlines(limit=5),
             }
             if with_ai:
+                # Real AI calls, unlike the synthetic default -- worth the
+                # same quota tracking observe.py does, so a --with-ai
+                # simulation run's status.py numbers stay honest too.
+                kademe2_started = time.perf_counter()
                 try:
                     analysis = generate_deep_analysis(candidate, deep_context)
-                except AnalysisError:
+                    db.insert_ai_call_log(
+                        "kademe2_sonnet", attempted=1, succeeded=1,
+                        duration_ms=(time.perf_counter() - kademe2_started) * 1000,
+                        error_reason=None, called_at=simulated_now,
+                    )
+                except AnalysisError as error:
+                    db.insert_ai_call_log(
+                        "kademe2_sonnet", attempted=1, succeeded=0,
+                        duration_ms=(time.perf_counter() - kademe2_started) * 1000,
+                        error_reason=str(error)[:200], called_at=simulated_now,
+                    )
                     continue
             else:
                 analysis = _synthetic_deep_analysis(candidate)
@@ -166,9 +181,20 @@ def run_cycle(
 
             if analysis["corroboration_strength"] == "strong":
                 if with_ai:
+                    kademe3_started = time.perf_counter()
                     try:
                         proposal = generate_final_proposal(candidate, analysis, deep_context)
-                    except ProposalError:
+                        db.insert_ai_call_log(
+                            "kademe3_opus", attempted=1, succeeded=1,
+                            duration_ms=(time.perf_counter() - kademe3_started) * 1000,
+                            error_reason=None, called_at=simulated_now,
+                        )
+                    except ProposalError as error:
+                        db.insert_ai_call_log(
+                            "kademe3_opus", attempted=1, succeeded=0,
+                            duration_ms=(time.perf_counter() - kademe3_started) * 1000,
+                            error_reason=str(error)[:200], called_at=simulated_now,
+                        )
                         continue
                 else:
                     proposal = _synthetic_final_proposal(candidate, technical_snapshots[symbol])
