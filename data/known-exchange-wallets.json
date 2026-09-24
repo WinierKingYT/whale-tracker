@@ -40,12 +40,12 @@
       ]
     },
     "coinbase": {
-      "structure": "found via web search, not a single clean label page -- less complete than the others, needs a follow-up pass. Etherscan's own /accounts/label/coinbase page returned 'no matching entries' on every fetch attempt (possibly anti-automation on that specific page); worked fine for binance/bitfinex/gemini.",
+      "structure": "Follow-up pass 2026-09-24: all four entries individually verified live on Etherscan (the /accounts/label/coinbase page is still Cloudflare-gated in this session, same as several other exchanges' label pages -- never loaded). Two ('1', '23') are small/inactive despite an 'Exchange' tag; the other two ('10', '44') are large and currently active -- track those two for real signal, the small ones mostly for completeness.",
       "wallets": [
-        {"label": "Coinbase 1", "address": "0x71660c4005ba85c37ccec55d0c4493e66fe775d3"},
-        {"label": "Coinbase 23", "address": "0xddfabcdc4d8ffc6d5beaf154f18b778f892a0740"},
-        {"label": "Coinbase 44", "address": "0xb5d85cbf7cb3ee0d56b3bb207d5fc4b82f43f511"},
-        {"label": "Coinbase 10", "address": "0xa9d1e08c7793af67e9d92fe308d5697fb81d3e43", "note": "found via our own live scan (an $8.3M USDC transfer), not a research search -- confirmed against Etherscan directly. This is the intended feedback loop: real observed data drives which addresses get identified next."}
+        {"label": "Coinbase 1", "address": "0x71660c4005ba85c37ccec55d0c4493e66fe775d3", "note": "verified live: only ~$31.6K (11 ETH + tokens), inactive 246 days -- tagged 'Fiat Gateway/Exchange', real but minor"},
+        {"label": "Coinbase 23", "address": "0xddfabcdc4d8ffc6d5beaf154f18b778f892a0740", "note": "verified live: ~$104.8K (33.7 ETH + tokens), inactive 246 days, tagged 'Deposit Address' -- same funder as Coinbase 1 (a one-time Binance-funded setup address, not itself exchange-labeled)"},
+        {"label": "Coinbase 44", "address": "0xb5d85cbf7cb3ee0d56b3bb207d5fc4b82f43f511", "note": "verified live: 17,694 ETH (~$47.5M) + >$17K tokens, latest tx 2 hrs ago at check time -- large and currently active despite an Etherscan 'Deposit Address' sub-tag"},
+        {"label": "Coinbase 10", "address": "0xa9d1e08c7793af67e9d92fe308d5697fb81d3e43", "note": "found via our own live scan (an $8.3M USDC transfer), confirmed against Etherscan directly. Re-verified 2026-09-24: a contract, plain 'Exchange' tag (no 'Deposit Address' sub-tag), 4,075 ETH (~$10.9M) + >$136M in tokens -- the largest of the four by token value. This is the intended feedback loop: real observed data drives which addresses get identified next."}
       ]
     },
     "kraken": {
