@@ -1,6 +1,6 @@
 """Offline unit tests: mock the HTTP layer, no real network calls."""
 
-from whale_tracker.sources import technical
+from whale_tracker.sources import _retry, technical
 from whale_tracker.storage import Storage
 
 
@@ -75,6 +75,8 @@ def test_snapshot_round_trips_through_storage(monkeypatch, tmp_path):
 
 
 def test_raises_on_http_error(monkeypatch):
+    monkeypatch.setattr(_retry.time, "sleep", lambda *a: None)  # skip real backoff delay
+
     def raise_error(url, params=None, timeout=None):
         raise technical.requests.RequestException("network down")
 

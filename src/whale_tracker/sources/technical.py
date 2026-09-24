@@ -20,6 +20,8 @@ from typing import Any
 
 import requests
 
+from ._retry import get_with_retries
+
 BASE_URL = "https://fapi.binance.com"
 _TIMEOUT_S = 15
 
@@ -32,14 +34,17 @@ class TechnicalDataError(RuntimeError):
 
 
 def _fetch_daily_klines(symbol: str, *, limit: int) -> list[list[Any]]:
-    try:
+    def _do_request() -> requests.Response:
         response = requests.get(
             f"{BASE_URL}/fapi/v1/klines",
             params={"symbol": symbol, "interval": "1d", "limit": limit},
             timeout=_TIMEOUT_S,
         )
         response.raise_for_status()
-        data = response.json()
+        return response
+
+    try:
+        data = get_with_retries(_do_request).json()
     except requests.RequestException as error:
         raise TechnicalDataError(f"Klines request failed: {symbol}") from error
     if not isinstance(data, list) or not data:

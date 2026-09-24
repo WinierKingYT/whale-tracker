@@ -9,6 +9,8 @@ from typing import Any
 
 import requests
 
+from ._retry import get_with_retries
+
 BASE_URL = "https://fapi.binance.com"
 _TIMEOUT_S = 15
 
@@ -18,10 +20,13 @@ class BinanceMarketDataError(RuntimeError):
 
 
 def _get(path: str, params: dict[str, Any]) -> Any:
-    try:
+    def _do_request() -> requests.Response:
         response = requests.get(f"{BASE_URL}{path}", params=params, timeout=_TIMEOUT_S)
         response.raise_for_status()
-        return response.json()
+        return response
+
+    try:
+        return get_with_retries(_do_request).json()
     except requests.RequestException as error:
         raise BinanceMarketDataError(f"Binance request failed: {path}") from error
 

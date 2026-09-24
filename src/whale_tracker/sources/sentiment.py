@@ -8,6 +8,8 @@ from typing import Any
 
 import requests
 
+from ._retry import get_with_retries
+
 URL = "https://api.alternative.me/fng/"
 _TIMEOUT_S = 15
 
@@ -17,10 +19,13 @@ class FearGreedError(RuntimeError):
 
 
 def fetch_fear_greed() -> dict[str, Any]:
-    try:
+    def _do_request() -> requests.Response:
         response = requests.get(URL, params={"limit": 1}, timeout=_TIMEOUT_S)
         response.raise_for_status()
-        payload = response.json()
+        return response
+
+    try:
+        payload = get_with_retries(_do_request).json()
     except requests.RequestException as error:
         raise FearGreedError("Fear & Greed request failed") from error
 

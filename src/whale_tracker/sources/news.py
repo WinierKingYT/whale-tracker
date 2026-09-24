@@ -10,6 +10,8 @@ from xml.etree import ElementTree
 
 import requests
 
+from ._retry import get_with_retries
+
 _TIMEOUT_S = 15
 _USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
@@ -24,9 +26,13 @@ class NewsFeedError(RuntimeError):
 
 
 def _fetch_feed(url: str) -> list[dict[str, Any]]:
-    try:
+    def _do_request() -> requests.Response:
         response = requests.get(url, headers={"User-Agent": _USER_AGENT}, timeout=_TIMEOUT_S)
         response.raise_for_status()
+        return response
+
+    try:
+        response = get_with_retries(_do_request)
     except requests.RequestException as error:
         raise NewsFeedError(f"Feed request failed: {url}") from error
 

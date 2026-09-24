@@ -1,6 +1,6 @@
 """Offline unit tests: mock the HTTP layer, no real network calls."""
 
-from whale_tracker.sources import news
+from whale_tracker.sources import _retry, news
 
 _SAMPLE_RSS = """<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
@@ -33,11 +33,12 @@ def test_fetch_headlines_parses_and_tags_source(monkeypatch):
 
 
 def test_a_single_broken_feed_does_not_fail_the_others(monkeypatch):
+    monkeypatch.setattr(_retry.time, "sleep", lambda *a: None)  # skip real backoff delay
     calls = {"n": 0}
 
     def fake_get(url, headers=None, timeout=None):
         calls["n"] += 1
-        if calls["n"] == 1:
+        if calls["n"] <= _retry.DEFAULT_RETRIES:  # every retry of the first feed fails
             raise news.requests.RequestException("network down")
         return _FakeResponse(_SAMPLE_RSS.encode("utf-8"))
 
