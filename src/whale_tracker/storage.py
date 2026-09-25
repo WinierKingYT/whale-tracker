@@ -7,7 +7,7 @@ import sqlite3
 from bisect import bisect_left
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 # One observer cycle's market and technical fetches land seconds apart;
 # the next cycle is 15 minutes later, so 5 minutes can't pair across cycles.
@@ -211,7 +211,7 @@ class Storage:
     def close(self) -> None:
         self._conn.close()
 
-    def __enter__(self) -> Storage:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc: object) -> None:

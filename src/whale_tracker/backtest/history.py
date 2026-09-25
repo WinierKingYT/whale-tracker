@@ -26,10 +26,11 @@ import hashlib
 import json
 import os
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import urlparse
 
 import requests
@@ -254,7 +255,7 @@ def _events_from_asset_transfers(
             continue
         from_addr = transfer["from"].lower()
         to_addr = (transfer["to"] or "").lower()
-        block_time = datetime.fromisoformat(transfer["metadata"]["blockTimestamp"].replace("Z", "+00:00"))
+        block_time = datetime.fromisoformat(transfer["metadata"]["blockTimestamp"].replace("Z", "+00:00"))  # noqa: FURB162 -- keeps the explicit UTC intent
         events.append({
             "tx_hash": transfer["hash"],
             "log_index": int(transfer["uniqueId"].rsplit(":", 1)[1]),
@@ -344,9 +345,11 @@ def fetch_exchange_flow_events(
         chunk_end = min(chunk_start + chunk_blocks - 1, end_block)
         name = f"flow-{wallet_fingerprint}/{chunk_start}-{chunk_end}-min{int(min_usd)}.json"
         if alchemy:
-            fetch = lambda: _fetch_flow_chunk_alchemy(chunk_start, chunk_end, min_usd=min_usd, labels=labels, url=url)  # noqa: E731
+            fetch = lambda s=chunk_start, e=chunk_end: _fetch_flow_chunk_alchemy(
+                s, e, min_usd=min_usd, labels=labels, url=url)
         else:
-            fetch = lambda: _fetch_flow_chunk(chunk_start, chunk_end, min_usd=min_usd, labels=labels)  # noqa: E731
+            fetch = lambda s=chunk_start, e=chunk_end: _fetch_flow_chunk(
+                s, e, min_usd=min_usd, labels=labels)
         all_events.extend(_cached(name, fetch))
         if progress and (alchemy or index % 10 == 0 or index == len(chunk_starts)):
             progress(f"zincir üstü akış: {index}/{len(chunk_starts)} parça")

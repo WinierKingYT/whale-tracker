@@ -13,7 +13,7 @@ something a second try would likely have fixed."""
 from __future__ import annotations
 
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import requests
 

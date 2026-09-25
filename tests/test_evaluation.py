@@ -207,7 +207,7 @@ def _seed_world_where_entry_timing_matters(db) -> None:
     first. The strategy's 10 trades all enter at phase 0 -- a timing edge
     a random entry only matches ~1 time in 58."""
     base = datetime(2026, 1, 1, tzinfo=UTC)
-    moment = lambda i: (base + timedelta(minutes=15 * i)).isoformat()  # noqa: E731
+    moment = lambda i: (base + timedelta(minutes=15 * i)).isoformat()
     for i in range(60 * 20):
         phase = i % 60
         price = 110.0 if phase == 1 else 90.0 if phase == 59 else 100.0

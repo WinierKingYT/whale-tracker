@@ -122,15 +122,16 @@ def cycle_alerts(candidates: list[dict[str, Any]], closed_positions: list[dict[s
         if proposal and proposal.get("action") == "long_candidate":
             alerts.append((
                 f"Kademe 3 önerisi: {candidate['symbol']}",
-                f"long_candidate, stop ${proposal['stop_loss_price']:,.2f}, "
-                f"güven {candidate['confidence']:.2f}, kanaat {proposal.get('conviction', '?')}. KAĞIT işlem -- gerçek emir yok.",
+                (f"long_candidate, stop ${proposal['stop_loss_price']:,.2f}, "
+                 f"güven {candidate['confidence']:.2f}, kanaat {proposal.get('conviction', '?')}. "
+                 "KAĞIT işlem -- gerçek emir yok."),
             ))
         position = candidate.get("paper_position")
         if position:
             alerts.append((
                 f"Kağıt pozisyon açıldı: {position['symbol']}",
-                f"giriş ${position['entry_price']:,.2f}, stop ${position['stop_loss_price']:,.2f}, "
-                f"hedef ${position['take_profit_price']:,.2f}, boyut ${position['position_size_usd']:,.2f}",
+                (f"giriş ${position['entry_price']:,.2f}, stop ${position['stop_loss_price']:,.2f}, "
+                 f"hedef ${position['take_profit_price']:,.2f}, boyut ${position['position_size_usd']:,.2f}"),
             ))
     for position in closed_positions:
         alerts.append((

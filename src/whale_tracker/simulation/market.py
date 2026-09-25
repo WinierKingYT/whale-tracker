@@ -30,7 +30,7 @@ OI_DAILY_VOLATILITY = 0.02
 
 
 class _DailyCandle:
-    __slots__ = ("open", "high", "low", "close")
+    __slots__ = ("close", "high", "low", "open")
 
     def __init__(self, open_price: float) -> None:
         self.open = self.high = self.low = self.close = open_price

@@ -11,7 +11,7 @@ def test_regime_is_deterministic_regardless_of_query_pattern():
     """Two simulators query the same regime at different moments in a
     cycle; the value at a given time must not depend on who asked first."""
     stepwise = LatentRegime(seed=3)
-    for i in range(0, 200):
+    for i in range(200):
         stepwise.value_at(T0 + timedelta(minutes=15 * i))
     jumped = LatentRegime(seed=3)
     jumped.value_at(T0)

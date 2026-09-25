@@ -46,8 +46,8 @@ DEFAULT_DAYS = 30
 IC_HORIZON_CYCLES = (96, 288)  # 24h and 72h ahead
 
 LIMITATIONS = (
-    "Kademe 2/3 gerçek Sonnet/Opus değil, simulate.py'nin sentetik vekilleri (mekanik güven >= 0.7 -> 'strong'): "
-    "bu backtest mekanik sinyali ve risk kurallarını ölçer, AI yargısını değil.",
+    ("Kademe 2/3 gerçek Sonnet/Opus değil, simulate.py'nin sentetik vekilleri (mekanik güven >= 0.7 -> 'strong'): "
+     "bu backtest mekanik sinyali ve risk kurallarını ölçer, AI yargısını değil."),
     "Geçmiş haber arşivi yok: olumsuz-haber cezası hiç tetiklenmez (birikim adayları üretimdekinden biraz daha kolay geçer).",
     "Bilinen cüzdan listesi BUGÜNKÜ liste: geçmişte farklı cüzdan kullanılmış olabilir (hayatta kalan yanlılığı).",
     "Funding, üretimdeki anlık lastFundingRate değil 8 saatlik yerleşik oran; fiyat, mark price değil 15m futures mum kapanışı.",
@@ -130,8 +130,8 @@ def render(result: dict[str, Any], *, start: datetime, end: datetime) -> str:
     counts = result["counts"]
     lines = [
         f"=== whale-tracker backtest: {start.date()} -> {end.date()} (gerçek geçmiş veri) ===", "",
-        f"Aday: birikim={counts['aday_accumulation']}, dağıtım={counts['aday_distribution']}; "
-        f"strong={counts['strong']}, long önerisi={counts['long_öneri']}, açılan pozisyon={counts['açılan_pozisyon']}",
+        (f"Aday: birikim={counts['aday_accumulation']}, dağıtım={counts['aday_distribution']}; "
+         f"strong={counts['strong']}, long önerisi={counts['long_öneri']}, açılan pozisyon={counts['açılan_pozisyon']}"),
         f"Çıkış dağılımı: {dict(result['exit_mix']) or '(kapanan yok)'}", "",
         render_evaluation_report(result["scorecard"]), "",
         "=== Rastgele giriş karşılaştırması (asıl kenar testi) ===",
@@ -141,10 +141,10 @@ def render(result: dict[str, Any], *, start: datetime, end: datetime) -> str:
         lines.append("Kapanan pozisyon yok -- karşılaştırılacak bir şey yok.")
     else:
         lines += [
-            f"Strateji, işlem başına ort. getiri: {baseline['strategy_mean_pnl_pct']:+.3%} "
-            f"({baseline['trades_per_trial']} işlem)",
-            f"Aynı dönemde rastgele girişler (aynı stop/hedef/süre kuralları, {baseline['trials']} deneme): "
-            f"{baseline['random_mean_pnl_pct']:+.3%} ± {baseline['random_stdev_of_means']:.3%}",
+            (f"Strateji, işlem başına ort. getiri: {baseline['strategy_mean_pnl_pct']:+.3%} "
+             f"({baseline['trades_per_trial']} işlem)"),
+            (f"Aynı dönemde rastgele girişler (aynı stop/hedef/süre kuralları, {baseline['trials']} deneme): "
+             f"{baseline['random_mean_pnl_pct']:+.3%} ± {baseline['random_stdev_of_means']:.3%}"),
             f"p-değeri (rastgele denemelerin stratejiye eşit ya da daha iyi olma oranı): {baseline['p_value']:.3f}",
         ]
         if baseline["trades_per_trial"] < 10:
