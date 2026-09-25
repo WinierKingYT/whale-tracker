@@ -13,11 +13,15 @@ from pathlib import Path
 
 from whale_tracker.approval import asama5_active, create_approval_request
 from whale_tracker.digest import notify_after_cycle
-from whale_tracker.paper_trading import check_and_close_positions, open_position, risk_guard_blocks_new_position
+from whale_tracker.evidence import ABSTAIN, freshness_problems
+from whale_tracker.paper_trading import (
+    check_and_close_positions,
+    open_position,
+    risk_guard_blocks_new_position,
+)
 from whale_tracker.report import render_report
 from whale_tracker.signal import generate_candidates
 from whale_tracker.sources.analysis import AnalysisError, generate_deep_analysis
-from whale_tracker.sources.proposal import ProposalError, generate_final_proposal
 from whale_tracker.sources.binance import BinanceMarketDataError, fetch_market_snapshot
 from whale_tracker.sources.classify import (
     CIRCUIT_BREAKER_COOLDOWN_MINUTES,
@@ -27,6 +31,7 @@ from whale_tracker.sources.classify import (
 )
 from whale_tracker.sources.news import NewsFeedError, fetch_headlines
 from whale_tracker.sources.onchain import OnchainScanError, scan_new_transfers
+from whale_tracker.sources.proposal import ProposalError, generate_final_proposal
 from whale_tracker.sources.sentiment import FearGreedError, fetch_fear_greed
 from whale_tracker.sources.technical import TechnicalDataError, fetch_technical_snapshot
 from whale_tracker.storage import Storage
@@ -47,6 +52,10 @@ def run_once(
     with Storage(db_path) as db:
         markets: dict[str, dict | None] = {}
         technicals: dict[str, dict | None] = {}
+        # Per-symbol reasons this cycle must ABSTAIN (evidence.py). The DB
+        # fallback below is kept for position monitoring and the report --
+        # never as evidence for a new decision.
+        abstain_reasons: dict[str, list[str]] = {symbol: [] for symbol in TRACKED_SYMBOLS}
         for symbol in TRACKED_SYMBOLS:
             try:
                 markets[symbol] = fetch_market_snapshot(symbol)
@@ -54,6 +63,7 @@ def run_once(
             except BinanceMarketDataError as error:
                 print(f"[uyarı] {symbol} Binance verisi alınamadı: {error}", file=sys.stderr)
                 markets[symbol] = db.latest_market_snapshot(symbol)
+                abstain_reasons[symbol].append("market verisi bu döngüde alınamadı")
 
             try:
                 technicals[symbol] = fetch_technical_snapshot(symbol)
@@ -61,6 +71,7 @@ def run_once(
             except TechnicalDataError as error:
                 print(f"[uyarı] {symbol} teknik verisi alınamadı: {error}", file=sys.stderr)
                 technicals[symbol] = db.latest_technical_snapshot(symbol)
+                abstain_reasons[symbol].append("technical verisi bu döngüde alınamadı")
 
         try:
             sentiment = fetch_fear_greed()
@@ -74,6 +85,9 @@ def run_once(
         except OnchainScanError as error:
             print(f"[uyarı] Zincir üstü tarama başarısız: {error}", file=sys.stderr)
             onchain_events = []
+            # A failed scan leaves the flow window silently incomplete.
+            for reasons in abstain_reasons.values():
+                reasons.append("zincir üstü tarama bu döngüde başarısız")
 
         try:
             new_headlines = [h for h in fetch_headlines() if db.insert_headline(h)]
@@ -119,6 +133,10 @@ def run_once(
         # signal.py's own docstring.
         all_candidates: list[dict] = []
         for symbol in TRACKED_SYMBOLS:
+            abstain_reasons[symbol].extend(freshness_problems(db, symbol))
+            if abstain_reasons[symbol]:
+                print(f"[{ABSTAIN}] {symbol}: {'; '.join(abstain_reasons[symbol])}", file=sys.stderr)
+                continue
             candidates = generate_candidates(db, symbol=symbol)
             all_candidates.extend(candidates)
             for candidate in candidates:
@@ -233,6 +251,7 @@ def run_once(
             headlines=new_headlines,
             signal_candidates=all_candidates,
             closed_positions=closed_positions,
+            abstentions=abstain_reasons,
         )
 
 

@@ -23,6 +23,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from whale_tracker.evidence import freshness_problems
 from whale_tracker.flow import exchange_sides
 from whale_tracker.sources.onchain import load_wallet_registry
 
@@ -178,6 +179,10 @@ def generate_candidates(
     that function's docstring for why it's an explicit parameter rather
     than an implicit datetime.now() call (production never passes it;
     simulate.py always does)."""
+    # Defense in depth: every caller (observe, simulate, backtest) gets the
+    # same ABSTAIN on stale evidence, not only the ones that remember to ask.
+    if freshness_problems(storage, symbol, now=now):
+        return []
     flow = _aggregate_exchange_flow(storage, hours=flow_window_hours, now=now)
     market = storage.latest_market_snapshot(symbol)
     sentiment = storage.latest_sentiment_snapshot("fear_greed")

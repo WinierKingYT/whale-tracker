@@ -54,6 +54,7 @@ def render_report(
     headlines: list[dict[str, Any]] | None = None,
     signal_candidates: list[dict[str, Any]] | None = None,
     closed_positions: list[dict[str, Any]] | None = None,
+    abstentions: dict[str, list[str]] | None = None,
 ) -> str:
     # `market_snapshot` (singular) stays as a BTCUSDT-only convenience for
     # single-symbol callers/tests; `market_snapshots` (plural, symbol ->
@@ -63,6 +64,12 @@ def render_report(
 
     lines = ["=== whale-tracker gözlemci raporu ===", ""]
 
+    abstaining = {symbol: reasons for symbol, reasons in (abstentions or {}).items() if reasons}
+    if abstaining:
+        lines.append("ABSTAIN (karar verilmedi -- aday, analiz, pozisyon, onay yok):")
+        for symbol, reasons in abstaining.items():
+            lines.append(f"  [{symbol}] {'; '.join(reasons)}")
+        lines.append("")
     signal_candidates = signal_candidates or []
     if signal_candidates:
         lines.append("Sinyal adayları (henüz işlem değil, öneri + gerekçe):")
