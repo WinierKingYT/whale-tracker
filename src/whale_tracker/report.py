@@ -12,15 +12,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from whale_tracker.flow import side_entity_type
+from whale_tracker.sources.onchain import ENTITY_DEX, ENTITY_FLAGGED, load_wallet_registry
+
 
 def _classify(event: dict[str, Any]) -> str:
-    from_tag = event.get("from_known_exchange") or ""
-    to_tag = event.get("to_known_exchange") or ""
-    if from_tag.startswith("⚠") or to_tag.startswith("⚠"):
+    registry = load_wallet_registry()
+    kinds = {side_entity_type(event, side, registry) for side in ("from", "to")}
+    if ENTITY_FLAGGED in kinds:
         return "flagged"
-    if from_tag.startswith("DEX:") or to_tag.startswith("DEX:"):
+    if ENTITY_DEX in kinds:
         return "dex"
-    if from_tag or to_tag:
+    if kinds - {None}:
         return "known"
     return "unknown"
 

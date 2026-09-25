@@ -28,6 +28,7 @@ def _seed(db: Storage, *, latest_minutes_ago: float = 10) -> None:
         "tx_hash": "0x1", "log_index": 0, "block_number": 1, "token": "USDT",
         "from_address": "0xa", "to_address": "0xb", "amount_usd_estimate": 5_000_000.0, "raw_amount": "5",
         "from_known_exchange": None, "to_known_exchange": "binance", "observed_at": _iso(30),
+        "from_entity_type": None, "to_entity_type": "exchange",
     })
 
 

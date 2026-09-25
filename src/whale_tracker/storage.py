@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS onchain_events (
     raw_amount TEXT NOT NULL,
     from_known_exchange TEXT,
     to_known_exchange TEXT,
+    from_entity_type TEXT,
+    to_entity_type TEXT,
     observed_at TEXT NOT NULL,
     UNIQUE(tx_hash, log_index)
 );
@@ -194,6 +196,9 @@ class Storage:
         for table, column, ddl in (
             ("signal_candidates", "symbol", "ALTER TABLE signal_candidates ADD COLUMN symbol TEXT NOT NULL DEFAULT 'BTCUSDT'"),
             ("paper_positions", "symbol", "ALTER TABLE paper_positions ADD COLUMN symbol TEXT NOT NULL DEFAULT 'BTCUSDT'"),
+            # NULL on old rows: flow.py resolves those by address, fail-closed.
+            ("onchain_events", "from_entity_type", "ALTER TABLE onchain_events ADD COLUMN from_entity_type TEXT"),
+            ("onchain_events", "to_entity_type", "ALTER TABLE onchain_events ADD COLUMN to_entity_type TEXT"),
         ):
             existing_columns = {row["name"] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             if column not in existing_columns:
@@ -217,11 +222,13 @@ class Storage:
                 """
                 INSERT INTO onchain_events
                     (tx_hash, log_index, block_number, token, from_address, to_address,
-                     amount_usd_estimate, raw_amount, from_known_exchange, to_known_exchange, observed_at)
+                     amount_usd_estimate, raw_amount, from_known_exchange, to_known_exchange,
+                     from_entity_type, to_entity_type, observed_at)
                 VALUES (:tx_hash, :log_index, :block_number, :token, :from_address, :to_address,
-                        :amount_usd_estimate, :raw_amount, :from_known_exchange, :to_known_exchange, :observed_at)
+                        :amount_usd_estimate, :raw_amount, :from_known_exchange, :to_known_exchange,
+                        :from_entity_type, :to_entity_type, :observed_at)
                 """,
-                event,
+                {"from_entity_type": None, "to_entity_type": None, **event},
             )
             self._conn.commit()
             return True

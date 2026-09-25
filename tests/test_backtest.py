@@ -95,7 +95,15 @@ def _event(minutes_after_day: int, *, amount: float = 5_000_000.0, to_exchange: 
         "block_timestamp": ts, "token": "USDT", "from_address": "0x" + "1" * 40, "to_address": "0x" + "2" * 40,
         "amount_usd_estimate": amount, "raw_amount": str(int(amount * 1e6)),
         "from_known_exchange": None, "to_known_exchange": to_exchange,
+        "from_entity_type": None, "to_entity_type": _type_of(to_exchange),
     }
+
+
+def _type_of(label: str | None) -> str | None:
+    """Fixture shorthand only -- production never derives type from a label."""
+    if label is None:
+        return None
+    return "dex" if label.startswith("DEX:") else "institution" if label.startswith("Abraxas") else "exchange"
 
 
 def test_onchain_replay_emits_each_event_once_at_its_block_time():
@@ -159,7 +167,7 @@ def test_simulated_entry_follows_strategy_exit_rules():
 def test_replay_classes_drive_the_real_pipeline_end_to_end(tmp_path):
     """Interface check: simulate.run_cycle must run unchanged on replays."""
     markets = {"BTCUSDT": _market()}
-    onchain = HistoricalOnchainReplay([_event(-30, to_exchange=None) | {"from_known_exchange": "binance"}])
+    onchain = HistoricalOnchainReplay([_event(-30, to_exchange=None) | {"from_known_exchange": "binance", "from_entity_type": "exchange"}])
     sentiment = HistoricalSentimentReplay([{"timestamp": int(DAY.timestamp()), "value": 30.0, "label": "Fear"}])
     with Storage(tmp_path / "bt.db") as db:
         result = run_cycle(db, markets, onchain, sentiment, NoNewsReplay(), with_ai=False)
@@ -251,7 +259,8 @@ def test_rolling_net_inflow_matches_signal_py_window(tmp_path):
         _event(-30 * 60) | {"observed_at": (DAY - timedelta(hours=30)).isoformat()},  # outside 24h at t
         _event(0) | {"tx_hash": "0xa", "observed_at": (DAY - timedelta(hours=2)).isoformat()},
         _event(0, to_exchange="DEX: Uniswap") | {"tx_hash": "0xb", "observed_at": (DAY - timedelta(hours=1)).isoformat()},
-        _event(0, to_exchange=None) | {"tx_hash": "0xc", "from_known_exchange": "okx", "amount_usd_estimate": 2e6,
+        _event(0, to_exchange=None) | {"tx_hash": "0xc", "from_known_exchange": "okx", "from_entity_type": "exchange",
+                                       "amount_usd_estimate": 2e6,
                                        "observed_at": (DAY - timedelta(hours=1)).isoformat()},
     ]
     with Storage(tmp_path / "f.db") as db:
@@ -283,7 +292,8 @@ def test_information_coefficient_finds_a_signal_that_drives_returns():
         for i in range(288):
             moment = DAY + timedelta(minutes=15 * (block * 288 + i))
             if i % 48 == 0:  # an exchange flow every 12h in the block's direction
-                tag = {"from_known_exchange": "binance", "to_known_exchange": None} if direction > 0 else {}
+                tag = ({"from_known_exchange": "binance", "to_known_exchange": None,
+                        "from_entity_type": "exchange", "to_entity_type": None} if direction > 0 else {})
                 events.append(_event(0) | tag | {"tx_hash": f"0x{block}-{i}", "observed_at": moment.isoformat()})
             price *= 1 + direction * 0.0002
             rows.append({"observed_at": moment.isoformat(), "mark_price": price, "support": 1, "resistance": 2})

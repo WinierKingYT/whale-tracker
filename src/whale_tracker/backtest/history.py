@@ -177,9 +177,17 @@ def block_at_or_after(moment: datetime) -> int:
 
 
 def _flow_addresses() -> dict[str, str]:
-    """Exactly the wallets signal._aggregate_exchange_flow counts: every
-    labeled wallet except DEX infrastructure and flagged addresses."""
-    return {a: label for a, label in onchain._load_known_wallets().items() if not label.startswith(("DEX:", "⚠"))}
+    """Exactly the wallets signal._aggregate_exchange_flow counts:
+    exchange-owned wallets only (no institutions, DEX, flagged)."""
+    return onchain.exchange_wallets()
+
+
+def _entity_types(from_addr: str, to_addr: str, labels: dict[str, str]) -> dict[str, str | None]:
+    """`labels` is the exchange-only flow set, so membership IS the type."""
+    return {
+        "from_entity_type": onchain.ENTITY_EXCHANGE if from_addr.lower() in labels else None,
+        "to_entity_type": onchain.ENTITY_EXCHANGE if to_addr.lower() in labels else None,
+    }
 
 
 def _events_from_logs(logs: list[dict[str, Any]], decimals: int, token: str, *, min_usd: float,
@@ -204,6 +212,7 @@ def _events_from_logs(logs: list[dict[str, Any]], decimals: int, token: str, *, 
             "raw_amount": str(raw_amount),
             "from_known_exchange": labels.get(from_addr.lower()),
             "to_known_exchange": labels.get(to_addr.lower()),
+            **_entity_types(from_addr, to_addr, labels),
         })
     return events
 
@@ -258,6 +267,7 @@ def _events_from_asset_transfers(
             "raw_amount": str(raw_amount),
             "from_known_exchange": labels.get(from_addr),
             "to_known_exchange": labels.get(to_addr),
+            **_entity_types(from_addr, to_addr, labels),
         })
     return events
 
