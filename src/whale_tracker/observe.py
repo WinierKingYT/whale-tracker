@@ -15,6 +15,7 @@ from whale_tracker.approval import asama5_active, create_approval_request, expir
 from whale_tracker.digest import notify_after_cycle
 from whale_tracker.evidence import ABSTAIN, freshness_problems
 from whale_tracker.paper_trading import (
+    available_notional_usd,
     check_and_close_positions,
     open_position,
     risk_guard_blocks_new_position,
@@ -197,6 +198,7 @@ def run_once(
                                     position = open_position(
                                         candidate_id, proposal, markets[symbol]["mark_price"],
                                         deep_context["technical_snapshot"], symbol=symbol,
+                                        available_notional=available_notional_usd(db),
                                     )
                                     # Aşama 5 goes first: it re-runs Risk Guard
                                     # itself, and must see the same state that

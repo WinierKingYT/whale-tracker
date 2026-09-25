@@ -115,6 +115,14 @@ def _daily_pnl_pct(storage: Any, *, now: datetime) -> float:
     return total_usd / VIRTUAL_CAPITAL_USD
 
 
+def available_notional_usd(storage: Any) -> float:
+    """Capital not already committed to open paper positions. With 1%
+    account-risk sizing a single position can be most of the capital, so
+    the concurrent-position cap alone would allow ~3x leverage."""
+    committed = sum(p["position_size_usd"] for p in storage.open_paper_positions())
+    return VIRTUAL_CAPITAL_USD - committed
+
+
 def risk_guard_blocks_new_position(storage: Any, *, now: datetime | None = None) -> str | None:
     """Returns a human-readable reason if the plan's own fixed risk rules
     block opening ANY new position right now, else None. Call this before
@@ -125,6 +133,8 @@ def risk_guard_blocks_new_position(storage: Any, *, now: datetime | None = None)
     now = now or datetime.now(UTC)
     if len(storage.open_paper_positions()) >= MAX_CONCURRENT_POSITIONS:
         return f"eşzamanlı pozisyon tavanı doldu (>={MAX_CONCURRENT_POSITIONS})"
+    if available_notional_usd(storage) <= 0:
+        return f"toplam açık pozisyon büyüklüğü sermayeye ulaştı (${VIRTUAL_CAPITAL_USD:,.0f})"
     daily_pnl_pct = _daily_pnl_pct(storage, now=now)
     if daily_pnl_pct <= -MAX_DAILY_LOSS_PCT:
         return f"günlük kayıp sınırı aşıldı ({daily_pnl_pct:+.2%}, sınır {-MAX_DAILY_LOSS_PCT:.0%})"
@@ -156,7 +166,7 @@ def compute_exit_levels(
 
 def open_position(
     candidate_id: int, proposal: dict[str, Any], market_price: float, technical: dict[str, Any] | None,
-    *, symbol: str = "BTCUSDT", now: datetime | None = None,
+    *, symbol: str = "BTCUSDT", now: datetime | None = None, available_notional: float | None = None,
 ) -> dict[str, Any] | None:
     """Open a paper position from a Kademe 3 long_candidate proposal.
     Returns None (does not open) when the risk/reward setup doesn't make
@@ -170,7 +180,8 @@ def open_position(
         return None
     stop_loss_price, take_profit_price = exits
     size_usd = position_size_usd(VIRTUAL_CAPITAL_USD, market_price, stop_loss_price,
-                                 risk_pct=proposal["max_position_size_pct"])
+                                 risk_pct=proposal["max_position_size_pct"],
+                                 available_notional_usd=available_notional)
     if size_usd is None:
         return None
 
