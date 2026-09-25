@@ -178,22 +178,72 @@ def test_render_report_shows_full_scorecard(tmp_path):
     assert "UYARI" not in report  # enough positions, no low-confidence warning
 
 
-def test_ready_for_asama5_true_when_enough_data_and_beats_btc_hold(tmp_path):
+def test_not_ready_when_beating_btc_hold_without_evidence_of_edge(tmp_path):
+    """Enough trades and beats BTC-hold used to be enough. The 2025-09..
+    2026-03 backtest showed why it isn't: a mostly-cash strategy that lost
+    money still "beat" a crashing BTC. Without the random-entry comparison
+    showing an edge, the gate stays closed."""
     with Storage(tmp_path / "t.db") as db:
         _seed_btc_price(db, 70000.0, minutes_ago=100)
         # end snapshot must be at-or-before the positions' own closed_at
-        # (5 min ago) -- see market_snapshot_near's own docstring. BTC
-        # itself is flat/down (-1.43%) while the strategy (10 trades,
-        # $100 each of $10,000 capital, +5% price move -> +0.5% portfolio
-        # return) is positive -- position sizing means per-trade % moves
-        # don't translate 1:1 to portfolio %, so BTC-hold has to be small
-        # or negative here for the strategy to actually beat it.
+        # (5 min ago) -- see market_snapshot_near's own docstring.
         _seed_btc_price(db, 69000.0, minutes_ago=6)  # BTC-hold: -1.43%
         for _ in range(evaluation.MIN_POSITIONS_FOR_CONFIDENCE):
             _open_and_close(db, entry_price=70000.0, exit_price=73500.0, status="take_profit",
                              opened_minutes_ago=10, closed_minutes_ago=5)
         scorecard = evaluation.evaluate_paper_trading(db)
 
+    assert scorecard["beats_btc_hold"] is True
+    assert scorecard["edge_test"] is None  # no support/resistance history to replay random entries against
+    assert scorecard["ready_for_asama5"] is False
+    assert "rastgele giriş karşılaştırması yapılamadı" in evaluation.render_evaluation_report(scorecard)
+
+
+def _seed_world_where_entry_timing_matters(db) -> None:
+    """60-cycle blocks: price 100, a spike to 110 right after phase 0, a
+    drop to 90 at the end. An entry at phase 0 hits the 109.45 target next
+    cycle; an entry anywhere else in the block runs into the 93.1 stop
+    first. The strategy's 10 trades all enter at phase 0 -- a timing edge
+    a random entry only matches ~1 time in 58."""
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    moment = lambda i: (base + timedelta(minutes=15 * i)).isoformat()  # noqa: E731
+    for i in range(60 * 20):
+        phase = i % 60
+        price = 110.0 if phase == 1 else 90.0 if phase == 59 else 100.0
+        db.insert_market_snapshot({"symbol": "BTCUSDT", "funding_rate": 0.0, "open_interest": 1.0,
+                                   "mark_price": price, "observed_at": moment(i)})
+        db.insert_technical_snapshot({
+            "symbol": "BTCUSDT", "current_price": price, "support": 95.0, "resistance": 110.0, "sma": 100.0,
+            "trend": "yatay", "volatility_daily_stddev": 0.01, "distance_to_support_pct": 0.05,
+            "is_above_support": True, "is_near_support": False, "distance_to_resistance_pct": 0.09,
+            "is_near_resistance": False, "observed_at": moment(i),
+        })
+    for block in range(2, 12):
+        i = block * 60
+        candidate_id = db.insert_signal_candidate({
+            "symbol": "BTCUSDT", "direction": "accumulation", "confidence": 0.9, "components": {},
+            "rationale": [], "generated_at": moment(i),
+        })
+        position_id = db.insert_paper_position({
+            "signal_candidate_id": candidate_id, "symbol": "BTCUSDT", "entry_price": 100.0,
+            "stop_loss_price": 93.1, "take_profit_price": 109.45, "position_size_usd": 100.0,
+            "status": "open", "opened_at": moment(i),
+        })
+        # closed_at a minute into the cycle, before the next snapshot, so the
+        # BTC-hold comparison anchors on price 100 (flat) rather than the spike.
+        db.close_paper_position(
+            position_id, exit_price=109.45, status="take_profit",
+            closed_at=(base + timedelta(minutes=15 * i + 1)).isoformat(), pnl_usd=9.45, pnl_pct=0.0945,
+        )
+
+
+def test_ready_for_asama5_when_entries_beat_random_and_btc_hold(tmp_path):
+    with Storage(tmp_path / "t.db") as db:
+        _seed_world_where_entry_timing_matters(db)
+        scorecard = evaluation.evaluate_paper_trading(db)
+
+    assert scorecard["beats_btc_hold"] is True
+    assert scorecard["edge_test"]["p_value"] < evaluation.ASAMA5_EDGE_P_VALUE
     assert scorecard["ready_for_asama5"] is True
     assert "[HAZIR]" in evaluation.render_evaluation_report(scorecard)
 

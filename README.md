@@ -294,8 +294,17 @@ satırı olarak kaydediliyor: durum hep `pending` başlıyor, yalnızca
 `python -m whale_tracker.approval approve/reject <id>` ile insan eliyle
 kararlaştırılıyor. İki bağımsız kapı var, ikisi de tutmalı: kod
 tarafında `ASAMA5_ENABLED` (varsayılan kapalı, açmak bilinçli bir
-commit gerektiriyor) ve `evaluation.ready_for_asama5` (planın kendi
-istatistiksel eşiği). "Onaylandı" durumu bile yalnızca "kullanıcının
+commit gerektiriyor) ve `evaluation.ready_for_asama5`. İkincisi planın
+kendi eşiği (≥10 kapanmış pozisyon, BTC-hold'u geçmek) **artı** 2026-09-25'te
+eklenen üçüncü şart: girişler, aynı dönemde aynı çıkış kurallarıyla açılan
+rastgele zamanlı girişlerden anlamlı şekilde iyi olmalı (p < 0.05). Sebep
+ölçülerek bulundu: 2025-09 → 2026-03 backtest'inde strateji para kaybettiği
+halde (-%0.95) çöken BTC'yi (-%34.7) "geçtiği" için kapı "hazır" diyordu —
+sermayesinin çoğu nakitte duran bir strateji her düşüş piyasasında bu
+kıyası beceri olmadan geçer. Kural yalnızca sıkılaştı; ayrıca canlı
+gözlemcide fiyat/teknik kayıtları saniyeler arayla yazıldığı için rastgele
+giriş testi üretim verisinde hiç eşleşme bulamıyordu (0 satır) — o da
+düzeltildi. "Onaylandı" durumu bile yalnızca "kullanıcının
 kendi ayrı, onaylı bot/script'i artık işlem yapabilir" demek —
 buradaki hiçbir kod borsa API'sine dokunmuyor. `ready_for_asama5` henüz
 gerçek veriyle dolmadığı için bu tamamen bir iskelet, üretimde şu an

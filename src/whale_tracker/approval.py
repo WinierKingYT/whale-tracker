@@ -15,7 +15,8 @@ Two independent gates, both required (see asama5_active):
    real-money behavior is opt-in and off by default, never silently
    turned on by data alone.
 2. evaluation.ready_for_asama5 -- the plan's own statistical bar
-   (enough closed paper positions, beats BTC-hold). This is a
+   (enough closed paper positions, beats BTC-hold) plus entries beating
+   random-time entries (evaluation.ASAMA5_EDGE_P_VALUE). This is a
    measurement, not a decision (see evaluation.py's own docstring on
    render_evaluation_report's [HAZIR] line) -- meeting it does not
    flip ASAMA5_ENABLED for you.

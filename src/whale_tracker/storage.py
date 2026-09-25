@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from bisect import bisect_right
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+# One observer cycle's market and technical fetches land seconds apart;
+# the next cycle is 15 minutes later, so 5 minutes can't pair across cycles.
+SAME_CYCLE_TOLERANCE = timedelta(minutes=5)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS onchain_events (
@@ -522,21 +528,34 @@ class Storage:
         return dict(row) if row else None
 
     def price_and_levels_history(self, symbol: str) -> list[dict[str, Any]]:
-        """Every cycle's mark price joined with that same cycle's support/
+        """Every cycle's mark price paired with that same cycle's support/
         resistance, oldest first -- backtest/baseline.py walks this to
         replay random entries under the exact exit rules the strategy's
-        own positions got."""
-        rows = self._conn.execute(
-            """
-            SELECT m.observed_at, m.mark_price, t.support, t.resistance
-            FROM market_snapshots m
-            JOIN technical_snapshots t ON t.symbol = m.symbol AND t.observed_at = m.observed_at
-            WHERE m.symbol = ?
-            ORDER BY m.observed_at
-            """,
+        own positions got.
+
+        Pairs each market snapshot with the latest technical snapshot up
+        to SAME_CYCLE_TOLERANCE after it, not by equal timestamps: the
+        simulator and backtest stamp both identically, but the live
+        observer fetches technicals a second or two after the market
+        snapshot, so an equality join matched 0 rows on real data."""
+        markets = self._conn.execute(
+            "SELECT observed_at, mark_price FROM market_snapshots WHERE symbol = ? ORDER BY observed_at", (symbol,),
+        ).fetchall()
+        technicals = self._conn.execute(
+            "SELECT observed_at, support, resistance FROM technical_snapshots WHERE symbol = ? ORDER BY observed_at",
             (symbol,),
         ).fetchall()
-        return [dict(row) for row in rows]
+        technical_times = [datetime.fromisoformat(row["observed_at"]) for row in technicals]
+        history = []
+        for market in markets:
+            limit = datetime.fromisoformat(market["observed_at"]) + SAME_CYCLE_TOLERANCE
+            index = bisect_right(technical_times, limit) - 1
+            if index >= 0:
+                history.append({
+                    "observed_at": market["observed_at"], "mark_price": market["mark_price"],
+                    "support": technicals[index]["support"], "resistance": technicals[index]["resistance"],
+                })
+        return history
 
     def market_snapshot_near(self, symbol: str, timestamp: str) -> dict[str, Any] | None:
         """The snapshot at-or-before `timestamp`, falling back to the

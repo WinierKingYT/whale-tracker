@@ -31,6 +31,7 @@ import statistics
 from pathlib import Path
 from typing import Any
 
+from whale_tracker.backtest.baseline import random_entry_baseline
 from whale_tracker.paper_trading import VIRTUAL_CAPITAL_USD
 from whale_tracker.storage import Storage
 
@@ -41,6 +42,14 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "whale_tracker.
 # statistically derived threshold. Below this, numbers are still shown
 # but flagged low-confidence rather than withheld.
 MIN_POSITIONS_FOR_CONFIDENCE = 10
+
+# Third condition for ready_for_asama5 (added 2026-09-25): the strategy's
+# entries must beat random-time entries under the same exit rules
+# (backtest/baseline.py, circular-shift p-value). Beating BTC-hold alone
+# proved insufficient: in the 2025-09..2026-03 backtest a mostly-cash
+# strategy LOST money (-0.95%) yet "beat" a -34.7% BTC-hold, and the gate
+# said ready. This only ever tightens the plan's own criterion.
+ASAMA5_EDGE_P_VALUE = 0.05
 
 
 def evaluate_paper_trading(storage: Any) -> dict[str, Any]:
@@ -55,7 +64,7 @@ def evaluate_paper_trading(storage: Any) -> dict[str, Any]:
     if not closed:
         return {
             "closed_position_count": 0, "open_position_count": open_count,
-            "insufficient_data": True, "ready_for_asama5": False,
+            "insufficient_data": True, "edge_test": None, "ready_for_asama5": False,
         }
 
     wins = [p for p in closed if p["pnl_usd"] > 0]
@@ -111,6 +120,8 @@ def evaluate_paper_trading(storage: Any) -> dict[str, Any]:
         }
 
     insufficient_data = len(closed) < MIN_POSITIONS_FOR_CONFIDENCE
+    edge_test = random_entry_baseline(storage, closed)
+    beats_random_entries = edge_test is not None and edge_test["p_value"] < ASAMA5_EDGE_P_VALUE
     return {
         "closed_position_count": len(closed),
         "open_position_count": open_count,
@@ -125,14 +136,12 @@ def evaluate_paper_trading(storage: Any) -> dict[str, Any]:
         "btc_hold_return_pct": btc_hold_return_pct,
         "beats_btc_hold": beats_btc_hold,
         "by_symbol": by_symbol,
-        # PROJECT-PLAN.md's own stated gate, made explicit rather than
-        # left as something a human has to remember to check: enough
-        # sample size (not insufficient_data) AND beats BTC-hold (section
-        # 9 -- "'sadece BTC tutmak' yeniyorsa gerçek parayı artırmayız").
-        # Deliberately doesn't add its own extra numeric thresholds (a
-        # minimum win rate, a drawdown cap) beyond what the plan itself
-        # states -- this is the plan's gate operationalized, not a new one.
-        "ready_for_asama5": (not insufficient_data) and beats_btc_hold is True,
+        "edge_test": edge_test,
+        # PROJECT-PLAN.md's own gate (enough sample, beats BTC-hold --
+        # section 9) plus ASAMA5_EDGE_P_VALUE's condition: entries must
+        # beat random-time entries. No win-rate or drawdown thresholds of
+        # its own beyond that.
+        "ready_for_asama5": (not insufficient_data) and beats_btc_hold is True and beats_random_entries,
     }
 
 
@@ -179,15 +188,29 @@ def render_evaluation_report(scorecard: dict[str, Any]) -> str:
                 f"isabet={stats['win_rate']:.1%}, P&L=${stats['total_pnl_usd']:,.2f}"
             )
 
+    edge_test = scorecard.get("edge_test")
+    if edge_test:
+        lines.append(
+            f"Rastgele girişlere karşı: işlem başına {edge_test['strategy_mean_pnl_pct']:+.2%} vs "
+            f"{edge_test['random_mean_pnl_pct']:+.2%} (p={edge_test['p_value']:.3f})"
+        )
+
     lines.append("")
     if scorecard["ready_for_asama5"]:
         lines.append(
-            f"[HAZIR] Aşama 5 (yarı otomatik) için plan'ın kendi eşiği karşılanıyor: "
-            f"yeterli örneklem (>={MIN_POSITIONS_FOR_CONFIDENCE}) ve BTC-hold'u geçiyor. "
-            f"Bu otomatik onay değil, yalnızca bir ölçüm -- karar hâlâ kullanıcının."
+            f"[HAZIR] Aşama 5 (yarı otomatik) eşiği karşılanıyor: yeterli örneklem "
+            f"(>={MIN_POSITIONS_FOR_CONFIDENCE}), BTC-hold'u geçiyor ve girişler rastgeleden anlamlı şekilde iyi "
+            f"(p<{ASAMA5_EDGE_P_VALUE}). Bu otomatik onay değil, yalnızca bir ölçüm -- karar hâlâ kullanıcının."
         )
     else:
-        reason = "yetersiz örneklem" if scorecard["insufficient_data"] else "BTC-hold'u geçmiyor"
+        if scorecard["insufficient_data"]:
+            reason = "yetersiz örneklem"
+        elif not scorecard["beats_btc_hold"]:
+            reason = "BTC-hold'u geçmiyor"
+        elif edge_test is None:
+            reason = "rastgele giriş karşılaştırması yapılamadı"
+        else:
+            reason = f"girişler rastgele girişlerden anlamlı şekilde iyi değil (p={edge_test['p_value']:.3f})"
         lines.append(f"[HENÜZ HAZIR DEĞİL] Aşama 5 eşiği karşılanmıyor ({reason}).")
     return "\n".join(lines)
 

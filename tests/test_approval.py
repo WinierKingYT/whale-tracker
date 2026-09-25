@@ -55,18 +55,34 @@ def _technical(**overrides):
     return base
 
 
-def test_asama5_active_false_by_default_even_when_ready(tmp_path):
+def _pretend_ready(monkeypatch) -> None:
+    # What "ready" requires is test_evaluation's job; here only the
+    # ASAMA5_ENABLED x ready combination is under test.
+    monkeypatch.setattr(approval, "evaluate_paper_trading", lambda storage: {"ready_for_asama5": True})
+
+
+def test_asama5_active_false_by_default_even_when_ready(tmp_path, monkeypatch):
+    _pretend_ready(monkeypatch)
     with Storage(tmp_path / "t.db") as db:
-        _seed_ready_for_asama5(db)
-        assert evaluation.evaluate_paper_trading(db)["ready_for_asama5"] is True
         assert approval.asama5_active(db) is False  # ASAMA5_ENABLED is off by default
 
 
 def test_asama5_active_true_only_when_both_gates_hold(tmp_path, monkeypatch):
     monkeypatch.setattr(approval, "ASAMA5_ENABLED", True)
+    _pretend_ready(monkeypatch)
+    with Storage(tmp_path / "t.db") as db:
+        assert approval.asama5_active(db) is True
+
+
+def test_asama5_stays_off_when_btc_hold_is_beaten_without_an_edge(tmp_path, monkeypatch):
+    """The real-data failure mode this gate was tightened for: enough trades
+    that beat BTC-hold, but no evidence entries beat random ones."""
+    monkeypatch.setattr(approval, "ASAMA5_ENABLED", True)
     with Storage(tmp_path / "t.db") as db:
         _seed_ready_for_asama5(db)
-        assert approval.asama5_active(db) is True
+        scorecard = evaluation.evaluate_paper_trading(db)
+        assert scorecard["beats_btc_hold"] is True and scorecard["ready_for_asama5"] is False
+        assert approval.asama5_active(db) is False
 
 
 def test_asama5_active_false_when_enabled_but_not_yet_ready(tmp_path, monkeypatch):

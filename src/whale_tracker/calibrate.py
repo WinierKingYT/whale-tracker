@@ -27,7 +27,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from whale_tracker.backtest.baseline import random_entry_baseline
 from whale_tracker.evaluation import evaluate_paper_trading
 from whale_tracker.observe import TRACKED_SYMBOLS
 from whale_tracker.simulate import run_cycle
@@ -46,7 +45,6 @@ DEFAULT_CYCLES_PER_RUN = 800
 # regime's direction (see OnchainSimulator) -- fixed, so --edge-strength
 # varies only how much the regime actually moves price.
 PLANTED_FLOW_BIAS = 1.0
-_EDGE_TEST_TRIALS = 200
 _REGIME_SEED_OFFSET = 10_000
 
 
@@ -73,9 +71,7 @@ def run_one(seed: int, *, cycles: int, min_usd: float, edge_strength: float = 0.
             news_sim = NewsSimulator(seed=seed)
             for _ in range(cycles):
                 run_cycle(db, markets, onchain_sim, sentiment_sim, news_sim, with_ai=False)
-            scorecard = evaluate_paper_trading(db)
-            closed = [p for p in db.all_paper_positions() if p["status"] != "open"]
-            scorecard["edge_test"] = random_entry_baseline(db, closed, trials=_EDGE_TEST_TRIALS, seed=seed)
+            scorecard = evaluate_paper_trading(db)  # includes the random-entry edge_test
     scorecard["seed"] = seed
     return scorecard
 

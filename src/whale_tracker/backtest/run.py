@@ -17,7 +17,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from whale_tracker.backtest.baseline import random_entry_baseline
 from whale_tracker.backtest.history import (
     DEFAULT_CHUNK_BLOCKS,
     ArchiveAccessError,
@@ -117,7 +116,7 @@ def replay(history: dict[str, Any], start: datetime, days: int, db_path: Path) -
 
         scorecard = evaluate_paper_trading(db)
         closed = [p for p in db.all_paper_positions() if p["status"] != "open"]
-        baseline = random_entry_baseline(db, closed)
+        baseline = scorecard["edge_test"]
         exit_mix = Counter(p["status"] for p in closed)
         _progress("sinyal seviyesi test (bilgi katsayısı)")
         ics = [

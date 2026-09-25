@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import random
 import statistics
+from bisect import bisect_right
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -90,12 +91,16 @@ def random_entry_baseline(
         ]
         for symbol in {p.get("symbol", "BTCUSDT") for p in closed_positions}
     }
-    index_of = {symbol: {row["observed_at"]: i for i, row in enumerate(h)} for symbol, h in histories.items()}
+    # A position maps to the latest cycle at or before its opened_at: the
+    # simulator stamps both identically, but a live position opens a few
+    # seconds after its cycle's snapshots, so exact matching found nothing.
+    moments = {symbol: [row["moment"] for row in h] for symbol, h in histories.items()}
     entries: list[tuple[str, int]] = []
     for position in closed_positions:
         symbol = position.get("symbol", "BTCUSDT")
-        if position["opened_at"] in index_of[symbol]:
-            entries.append((symbol, index_of[symbol][position["opened_at"]]))
+        index = bisect_right(moments[symbol], datetime.fromisoformat(position["opened_at"])) - 1
+        if index >= 0:
+            entries.append((symbol, index))
     # BTC and ETH histories come from the same cycles, so one shared
     # length (the shorter, defensively) keeps one offset meaning the
     # same moment for both.
