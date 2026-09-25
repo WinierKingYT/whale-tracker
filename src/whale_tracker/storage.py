@@ -167,6 +167,7 @@ CREATE TABLE IF NOT EXISTS approval_requests (
     position_size_usd REAL NOT NULL,
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    expires_at TEXT,
     decided_at TEXT,
     note TEXT
 );
@@ -197,6 +198,8 @@ class Storage:
             ("signal_candidates", "symbol", "ALTER TABLE signal_candidates ADD COLUMN symbol TEXT NOT NULL DEFAULT 'BTCUSDT'"),
             ("paper_positions", "symbol", "ALTER TABLE paper_positions ADD COLUMN symbol TEXT NOT NULL DEFAULT 'BTCUSDT'"),
             # NULL on old rows: flow.py resolves those by address, fail-closed.
+            # NULL on old rows: approval.py treats a missing expiry as expired.
+            ("approval_requests", "expires_at", "ALTER TABLE approval_requests ADD COLUMN expires_at TEXT"),
             ("onchain_events", "from_entity_type", "ALTER TABLE onchain_events ADD COLUMN from_entity_type TEXT"),
             ("onchain_events", "to_entity_type", "ALTER TABLE onchain_events ADD COLUMN to_entity_type TEXT"),
         ):
@@ -407,9 +410,9 @@ class Storage:
             """
             INSERT INTO approval_requests
                 (signal_candidate_id, symbol, entry_price, stop_loss_price, take_profit_price,
-                 position_size_usd, status, created_at)
+                 position_size_usd, status, created_at, expires_at)
             VALUES (:signal_candidate_id, :symbol, :entry_price, :stop_loss_price, :take_profit_price,
-                    :position_size_usd, :status, :created_at)
+                    :position_size_usd, :status, :created_at, :expires_at)
             """,
             payload,
         )

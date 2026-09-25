@@ -11,7 +11,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from whale_tracker.approval import asama5_active, create_approval_request
+from whale_tracker.approval import asama5_active, create_approval_request, expire_stale_requests
 from whale_tracker.digest import notify_after_cycle
 from whale_tracker.evidence import ABSTAIN, freshness_problems
 from whale_tracker.paper_trading import (
@@ -232,6 +232,8 @@ def run_once(
                         error_reason=str(error)[:200], called_at=datetime.now(UTC).isoformat(),
                     )
                     print(f"[uyarı] Kademe 2 analiz başarısız: {error}", file=sys.stderr)
+
+        expire_stale_requests(db)
 
         # Every cycle, regardless of whether a new candidate showed up:
         # check already-open paper positions (any tracked symbol) against

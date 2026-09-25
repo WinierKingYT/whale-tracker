@@ -242,3 +242,81 @@ def test_all_gates_open_creates_request(tmp_path, monkeypatch):
         _open_all_gates(monkeypatch, db)
         assert approval.approval_blockers(db, "BTCUSDT", 70000.0) == []
         assert _direct_call(db) is not None
+
+
+# --- WT-05.1 P1: approval lifecycle ---
+
+def _pending(db, monkeypatch, *, now=None):
+    _open_all_gates(monkeypatch, db)
+    request = approval.create_approval_request(db, _candidate(db), _proposal(), 70000.0, _technical(),
+                                               symbol="BTCUSDT", now=now)
+    assert request is not None
+    return request
+
+
+def test_request_has_expiry(tmp_path, monkeypatch):
+    with Storage(tmp_path / "t.db") as db:
+        request = _pending(db, monkeypatch)
+        created = datetime.fromisoformat(request["created_at"])
+        assert datetime.fromisoformat(request["expires_at"]) - created == approval.APPROVAL_TTL
+
+
+def test_expired_request_cannot_be_approved(tmp_path, monkeypatch):
+    with Storage(tmp_path / "t.db") as db:
+        request = _pending(db, monkeypatch)
+        later = datetime.now(UTC) + approval.APPROVAL_TTL + timedelta(minutes=1)
+        _seed_btc_price(db, 70000.0, minutes_ago=-61)  # fresh at `later`
+        status, reasons = approval.approve_request(db, request["id"], 70000.0, now=later)
+        assert status in {"expired", "invalidated"} and "süresi doldu" in reasons
+        assert db.get_approval_request(request["id"])["status"] != "approved"
+
+
+def test_expire_stale_requests_sweeps_pending(tmp_path, monkeypatch):
+    with Storage(tmp_path / "t.db") as db:
+        request = _pending(db, monkeypatch)
+        assert approval.expire_stale_requests(db) == []
+        later = datetime.now(UTC) + approval.APPROVAL_TTL
+        assert approval.expire_stale_requests(db, now=later) == [request["id"]]
+        assert db.get_approval_request(request["id"])["status"] == "expired"
+
+
+def test_price_drift_invalidates_at_approval(tmp_path, monkeypatch):
+    """Proposed at $70,000, user approves at $73,000: old geometry no longer holds."""
+    with Storage(tmp_path / "t.db") as db:
+        request = _pending(db, monkeypatch)
+        _seed_btc_price(db, 73000.0, minutes_ago=0)
+        status, reasons = approval.approve_request(db, request["id"], 73000.0)
+        assert status == "invalidated"
+        assert any("fiyat kaydı" in r for r in reasons)
+        assert db.get_approval_request(request["id"])["status"] == "invalidated"
+
+
+def test_risk_guard_rechecked_at_approval(tmp_path, monkeypatch):
+    with Storage(tmp_path / "t.db") as db:
+        request = _pending(db, monkeypatch)
+        monkeypatch.setattr(approval, "risk_guard_blocks_new_position", lambda storage, now=None: "günlük kayıp")
+        status, reasons = approval.approve_request(db, request["id"], 70000.0)
+        assert status == "invalidated" and "Risk Guard: günlük kayıp" in reasons
+
+
+def test_stale_evidence_rechecked_at_approval(tmp_path, monkeypatch):
+    with Storage(tmp_path / "t.db") as db:
+        request = _pending(db, monkeypatch)
+        soon = datetime.now(UTC) + timedelta(minutes=30)  # within TTL, but snapshot now 30 min old
+        status, reasons = approval.approve_request(db, request["id"], 70000.0, now=soon)
+        assert status == "invalidated" and any("bayat" in r for r in reasons)
+
+
+def test_valid_request_is_approved_and_cannot_be_decided_twice(tmp_path, monkeypatch):
+    with Storage(tmp_path / "t.db") as db:
+        request = _pending(db, monkeypatch)
+        assert approval.approve_request(db, request["id"], 70100.0) == ("approved", [])
+        status, _ = approval.approve_request(db, request["id"], 70100.0)
+        assert status == "approved"  # unchanged, not re-decided
+
+
+def test_legacy_row_without_expiry_is_treated_as_expired(tmp_path, monkeypatch):
+    with Storage(tmp_path / "t.db") as db:
+        request = _pending(db, monkeypatch)
+        db._conn.execute("UPDATE approval_requests SET expires_at = NULL WHERE id = ?", (request["id"],))
+        assert approval.expire_stale_requests(db) == [request["id"]]

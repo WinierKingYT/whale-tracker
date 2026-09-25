@@ -31,13 +31,15 @@ depends on the caller having checked first. A human runs `python -m whale_tracke
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from whale_tracker.evaluation import evaluate_paper_trading
 from whale_tracker.evidence import freshness_problems
 from whale_tracker.paper_trading import compute_exit_levels, risk_guard_blocks_new_position
+from whale_tracker.sources.binance import BinanceMarketDataError, fetch_market_snapshot
+from whale_tracker.sources.technical import TechnicalDataError, fetch_technical_snapshot
 from whale_tracker.storage import Storage
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "whale_tracker.db"
@@ -59,6 +61,17 @@ ASAMA5_CAPITAL_USD = 0.0
 # stored, fresh market snapshot -- a request priced off anything else
 # (an old variable, a different symbol) is refused, not recorded.
 MAX_ENTRY_PRICE_DEVIATION = 0.005  # 0.5%
+
+# A pending request is a statement about the market at created_at. After
+# this long it is no longer a statement about now -- it expires instead
+# of waiting indefinitely for a human.
+APPROVAL_TTL = timedelta(minutes=60)
+
+# At approval time the live price may have moved from the proposal's
+# entry. Beyond this drift the stop/target geometry and the risk sizing
+# were computed for a different trade -- the request is invalidated, not
+# approved (e.g. proposed at $70,000, approved at $73,000).
+MAX_APPROVAL_PRICE_DRIFT = 0.005  # 0.5%
 
 
 def asama5_active(storage: Any) -> bool:
@@ -115,6 +128,7 @@ def create_approval_request(
 
     Also returns None when any approval_blockers() gate fails -- checked
     here, not only by the caller, so a direct call can't bypass them."""
+    now = now or datetime.now(UTC)
     if approval_blockers(storage, symbol, market_price, now=now):
         return None
     exits = compute_exit_levels(proposal, market_price, technical)
@@ -130,10 +144,77 @@ def create_approval_request(
         "take_profit_price": take_profit_price,
         "position_size_usd": round(ASAMA5_CAPITAL_USD * proposal["max_position_size_pct"], 2),
         "status": "pending",
-        "created_at": (now or datetime.now(UTC)).isoformat(),
+        "created_at": now.isoformat(),
+        "expires_at": (now + APPROVAL_TTL).isoformat(),
     }
     request["id"] = storage.insert_approval_request(request)
     return request
+
+
+def _is_expired(request: dict[str, Any], now: datetime) -> bool:
+    # Rows created before expires_at existed have none: treat as expired
+    # (fail-closed) rather than valid forever.
+    if not request.get("expires_at"):
+        return True
+    return now >= datetime.fromisoformat(request["expires_at"])
+
+
+def expire_stale_requests(storage: Any, *, now: datetime | None = None) -> list[int]:
+    """Mark every pending request past its expiry as 'expired'."""
+    now = now or datetime.now(UTC)
+    expired = []
+    for request in storage.pending_approval_requests():
+        if _is_expired(request, now):
+            storage.decide_approval_request(request["id"], status="expired", decided_at=now.isoformat(),
+                                            note="süresi doldu")
+            expired.append(request["id"])
+    return expired
+
+
+def approval_time_blockers(
+    storage: Any, request: dict[str, Any], current_price: float, *, now: datetime | None = None,
+) -> list[str]:
+    """Re-validate a pending request at the moment a human approves it:
+    expiry, live price drift from the proposed entry, the stop/target
+    geometry against the live price, and every creation-time gate
+    (flag, readiness, freshness, Risk Guard) again."""
+    now = now or datetime.now(UTC)
+    blockers: list[str] = []
+    if request["status"] != "pending":
+        return [f"istek zaten '{request['status']}'"]
+    if _is_expired(request, now):
+        blockers.append("süresi doldu")
+    drift = abs(current_price - request["entry_price"]) / request["entry_price"]
+    if drift > MAX_APPROVAL_PRICE_DRIFT:
+        blockers.append(
+            f"fiyat kaydı {drift:.2%} > {MAX_APPROVAL_PRICE_DRIFT:.1%} "
+            f"(öneri ${request['entry_price']:,.2f}, şimdi ${current_price:,.2f})"
+        )
+    if not (request["stop_loss_price"] < current_price < request["take_profit_price"]):
+        blockers.append("güncel fiyat stop/hedef aralığının dışında")
+    blockers.extend(approval_blockers(storage, request["symbol"], current_price, now=now))
+    return blockers
+
+
+def approve_request(
+    storage: Any, request_id: int, current_price: float, *, now: datetime | None = None, note: str | None = None,
+) -> tuple[str, list[str]]:
+    """The only path to 'approved'. Returns (resulting_status, reasons).
+    Anything that fails re-validation ends the request -- 'expired' or
+    'invalidated' -- instead of leaving a stale proposal approvable later."""
+    now = now or datetime.now(UTC)
+    request = storage.get_approval_request(request_id)
+    if request is None:
+        return "not_found", ["istek bulunamadı"]
+    blockers = approval_time_blockers(storage, request, current_price, now=now)
+    if request["status"] != "pending":
+        return request["status"], blockers
+    if blockers:
+        status = "expired" if blockers == ["süresi doldu"] else "invalidated"
+        storage.decide_approval_request(request_id, status=status, decided_at=now.isoformat(), note="; ".join(blockers))
+        return status, blockers
+    storage.decide_approval_request(request_id, status="approved", decided_at=now.isoformat(), note=note)
+    return "approved", []
 
 
 def _render_request(request: dict[str, Any]) -> str:
@@ -141,7 +222,7 @@ def _render_request(request: dict[str, Any]) -> str:
         f"#{request['id']} [{request['status']}] {request['symbol']} "
         f"giriş=${request['entry_price']:,.2f} stop=${request['stop_loss_price']:,.2f} "
         f"hedef=${request['take_profit_price']:,.2f} boyut=${request['position_size_usd']:,.2f} "
-        f"oluşturulma={request['created_at']}"
+        f"oluşturulma={request['created_at']} son={request.get('expires_at') or '-'}"
     )
 
 
@@ -165,6 +246,7 @@ def main() -> int:
 
     args = parser.parse_args()
     with Storage(args.db) as db:
+        expire_stale_requests(db)
         if args.command == "list":
             pending = db.pending_approval_requests()
             if not pending:
@@ -182,15 +264,33 @@ def main() -> int:
             print(f"İstek zaten karara bağlanmış: {_render_request(request)}")
             return 1
 
-        status = "approved" if args.command == "approve" else "rejected"
-        db.decide_approval_request(args.request_id, status=status, decided_at=datetime.now(UTC).isoformat(), note=args.note)
+        if args.command == "reject":
+            db.decide_approval_request(args.request_id, status="rejected", decided_at=datetime.now(UTC).isoformat(),
+                                       note=args.note)
+            print(f"#{args.request_id} -> rejected")
+            return 0
+
+        # Approval re-validates against the market NOW, not the market at
+        # proposal time: fetch live evidence first. No live price -> no
+        # approval (the request stays pending until it expires).
+        try:
+            market = fetch_market_snapshot(request["symbol"])
+            db.insert_market_snapshot(market)
+            db.insert_technical_snapshot(fetch_technical_snapshot(request["symbol"]))
+        except (BinanceMarketDataError, TechnicalDataError) as error:
+            print(f"Canlı veri alınamadı, onay verilmedi (istek beklemede kaldı): {error}")
+            return 1
+        status, reasons = approve_request(db, args.request_id, market["mark_price"], note=args.note)
         print(f"#{args.request_id} -> {status}")
+        for reason in reasons:
+            print(f"  - {reason}")
         if status == "approved":
             print(
                 "Not: bu yalnızca bir karar kaydıdır, hiçbir işlem yürütülmedi -- "
                 "gerçek işlem kendi ayrı, onaylı bot/script'in tarafından, kendi API anahtarınla yapılmalı."
             )
-        return 0
+            return 0
+        return 1
 
 
 if __name__ == "__main__":
