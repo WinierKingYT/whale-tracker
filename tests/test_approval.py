@@ -61,6 +61,22 @@ def _pretend_ready(monkeypatch) -> None:
     monkeypatch.setattr(approval, "evaluate_paper_trading", lambda storage: {"ready_for_asama5": True})
 
 
+def _open_all_gates(monkeypatch, db, *, price: float = 70000.0) -> None:
+    """Every approval_blockers gate satisfied: flag on, ready, capital set,
+    fresh market snapshot at `price`, Risk Guard clear (empty DB)."""
+    monkeypatch.setattr(approval, "ASAMA5_ENABLED", True)
+    monkeypatch.setattr(approval, "ASAMA5_CAPITAL_USD", 500.0)
+    _pretend_ready(monkeypatch)
+    _seed_btc_price(db, price, minutes_ago=1)
+
+
+def _candidate(db) -> int:
+    return db.insert_signal_candidate({
+        "symbol": "BTCUSDT", "direction": "accumulation", "confidence": 0.9,
+        "components": {}, "rationale": [], "generated_at": _now(),
+    })
+
+
 def test_asama5_active_false_by_default_even_when_ready(tmp_path, monkeypatch):
     _pretend_ready(monkeypatch)
     with Storage(tmp_path / "t.db") as db:
@@ -105,8 +121,8 @@ def test_create_approval_request_refuses_when_capital_unset(tmp_path):
 
 
 def test_create_approval_request_creates_pending_row(tmp_path, monkeypatch):
-    monkeypatch.setattr(approval, "ASAMA5_CAPITAL_USD", 500.0)
     with Storage(tmp_path / "t.db") as db:
+        _open_all_gates(monkeypatch, db)
         candidate_id = db.insert_signal_candidate({
             "symbol": "BTCUSDT", "direction": "accumulation", "confidence": 0.9,
             "components": {}, "rationale": [], "generated_at": _now(),
@@ -124,13 +140,14 @@ def test_create_approval_request_creates_pending_row(tmp_path, monkeypatch):
 
 
 def test_create_approval_request_returns_none_for_broken_setup(tmp_path, monkeypatch):
-    monkeypatch.setattr(approval, "ASAMA5_CAPITAL_USD", 500.0)
     with Storage(tmp_path / "t.db") as db:
+        _open_all_gates(monkeypatch, db)
         candidate_id = db.insert_signal_candidate({
             "symbol": "BTCUSDT", "direction": "accumulation", "confidence": 0.9,
             "components": {}, "rationale": [], "generated_at": _now(),
         })
         # market_price already past take_profit_price -> broken setup
+        _seed_btc_price(db, 90000.0, minutes_ago=0)
         request = approval.create_approval_request(
             db, candidate_id, _proposal(), 90000.0, _technical(), symbol="BTCUSDT",
         )
@@ -139,8 +156,8 @@ def test_create_approval_request_returns_none_for_broken_setup(tmp_path, monkeyp
 
 
 def test_decide_approval_request_approve_removes_from_pending(tmp_path, monkeypatch):
-    monkeypatch.setattr(approval, "ASAMA5_CAPITAL_USD", 500.0)
     with Storage(tmp_path / "t.db") as db:
+        _open_all_gates(monkeypatch, db)
         candidate_id = db.insert_signal_candidate({
             "symbol": "BTCUSDT", "direction": "accumulation", "confidence": 0.9,
             "components": {}, "rationale": [], "generated_at": _now(),
@@ -158,8 +175,8 @@ def test_decide_approval_request_approve_removes_from_pending(tmp_path, monkeypa
 
 
 def test_decide_approval_request_reject_removes_from_pending(tmp_path, monkeypatch):
-    monkeypatch.setattr(approval, "ASAMA5_CAPITAL_USD", 500.0)
     with Storage(tmp_path / "t.db") as db:
+        _open_all_gates(monkeypatch, db)
         candidate_id = db.insert_signal_candidate({
             "symbol": "BTCUSDT", "direction": "accumulation", "confidence": 0.9,
             "components": {}, "rationale": [], "generated_at": _now(),
@@ -172,3 +189,56 @@ def test_decide_approval_request_reject_removes_from_pending(tmp_path, monkeypat
 
         assert db.pending_approval_requests() == []
         assert db.get_approval_request(request["id"])["status"] == "rejected"
+
+
+# --- WT-05.1 P0: the gate lives inside create_approval_request itself ---
+
+def _direct_call(db):
+    return approval.create_approval_request(db, _candidate(db), _proposal(), 70000.0, _technical(), symbol="BTCUSDT")
+
+
+def test_direct_call_is_refused_when_flag_is_off(tmp_path, monkeypatch):
+    with Storage(tmp_path / "t.db") as db:
+        _open_all_gates(monkeypatch, db)
+        monkeypatch.setattr(approval, "ASAMA5_ENABLED", False)
+        assert _direct_call(db) is None
+        assert "ASAMA5_ENABLED kapalı" in approval.approval_blockers(db, "BTCUSDT", 70000.0)
+        assert db.pending_approval_requests() == []
+
+
+def test_direct_call_is_refused_when_not_ready(tmp_path, monkeypatch):
+    with Storage(tmp_path / "t.db") as db:
+        _open_all_gates(monkeypatch, db)
+        monkeypatch.setattr(approval, "evaluate_paper_trading", lambda storage: {"ready_for_asama5": False})
+        assert _direct_call(db) is None
+
+
+def test_direct_call_is_refused_on_stale_evidence(tmp_path, monkeypatch):
+    with Storage(tmp_path / "t.db") as db:
+        _open_all_gates(monkeypatch, db)
+        stale = datetime.now(UTC) + timedelta(hours=2)  # evaluate "now" two hours after the snapshot
+        assert approval.create_approval_request(
+            db, _candidate(db), _proposal(), 70000.0, _technical(), symbol="BTCUSDT", now=stale,
+        ) is None
+        assert any("bayat" in b for b in approval.approval_blockers(db, "BTCUSDT", 70000.0, now=stale))
+
+
+def test_direct_call_is_refused_when_price_disagrees_with_snapshot(tmp_path, monkeypatch):
+    with Storage(tmp_path / "t.db") as db:
+        _open_all_gates(monkeypatch, db, price=73000.0)
+        assert _direct_call(db) is None  # caller says 70000, fresh snapshot says 73000
+
+
+def test_direct_call_is_refused_by_risk_guard(tmp_path, monkeypatch):
+    with Storage(tmp_path / "t.db") as db:
+        _open_all_gates(monkeypatch, db)
+        monkeypatch.setattr(approval, "risk_guard_blocks_new_position", lambda storage, now=None: "tavan doldu")
+        assert _direct_call(db) is None
+        assert "Risk Guard: tavan doldu" in approval.approval_blockers(db, "BTCUSDT", 70000.0)
+
+
+def test_all_gates_open_creates_request(tmp_path, monkeypatch):
+    with Storage(tmp_path / "t.db") as db:
+        _open_all_gates(monkeypatch, db)
+        assert approval.approval_blockers(db, "BTCUSDT", 70000.0) == []
+        assert _direct_call(db) is not None

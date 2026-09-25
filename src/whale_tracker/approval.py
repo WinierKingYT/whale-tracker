@@ -22,7 +22,10 @@ Two independent gates, both required (see asama5_active):
    flip ASAMA5_ENABLED for you.
 
 Even when both gates hold, create_approval_request only ever produces a
-'pending' row. A human runs `python -m whale_tracker.approval list` /
+'pending' row -- and it re-checks every gate itself (approval_blockers):
+ASAMA5_ENABLED, ready_for_asama5, evidence freshness, the caller's price
+against the stored snapshot, and Risk Guard. The financial boundary never
+depends on the caller having checked first. A human runs `python -m whale_tracker.approval list` /
 `approve <id>` / `reject <id>` -- there is no other path to 'approved'."""
 
 from __future__ import annotations
@@ -33,7 +36,8 @@ from pathlib import Path
 from typing import Any
 
 from whale_tracker.evaluation import evaluate_paper_trading
-from whale_tracker.paper_trading import compute_exit_levels
+from whale_tracker.evidence import freshness_problems
+from whale_tracker.paper_trading import compute_exit_levels, risk_guard_blocks_new_position
 from whale_tracker.storage import Storage
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "whale_tracker.db"
@@ -51,6 +55,11 @@ ASAMA5_ENABLED = False
 # zero capital rather than silently producing a $0 proposal.
 ASAMA5_CAPITAL_USD = 0.0
 
+# The price a caller hands create_approval_request must agree with the
+# stored, fresh market snapshot -- a request priced off anything else
+# (an old variable, a different symbol) is refused, not recorded.
+MAX_ENTRY_PRICE_DEVIATION = 0.005  # 0.5%
+
 
 def asama5_active(storage: Any) -> bool:
     """True only when both gates hold -- see module docstring. Checked
@@ -64,6 +73,34 @@ def asama5_active(storage: Any) -> bool:
     return bool(scorecard.get("ready_for_asama5"))
 
 
+def approval_blockers(
+    storage: Any, symbol: str, market_price: float, *, now: datetime | None = None,
+) -> list[str]:
+    """Every reason an Aşama 5 approval must NOT be created right now;
+    empty list means all gates hold. Order: cheapest/most fundamental
+    first, but all are evaluated so the log shows the full picture."""
+    now = now or datetime.now(UTC)
+    blockers: list[str] = []
+    if not ASAMA5_ENABLED:
+        blockers.append("ASAMA5_ENABLED kapalı")
+    elif not asama5_active(storage):
+        blockers.append("ready_for_asama5 sağlanmıyor")
+    if ASAMA5_CAPITAL_USD <= 0:
+        blockers.append("ASAMA5_CAPITAL_USD ayarlanmamış")
+    blockers.extend(freshness_problems(storage, symbol, now=now))
+    market = storage.latest_market_snapshot(symbol)
+    if market and market.get("mark_price"):
+        deviation = abs(market_price - market["mark_price"]) / market["mark_price"]
+        if deviation > MAX_ENTRY_PRICE_DEVIATION:
+            blockers.append(
+                f"giriş fiyatı saklı snapshot'tan sapıyor ({deviation:.2%} > {MAX_ENTRY_PRICE_DEVIATION:.1%})"
+            )
+    risk_block = risk_guard_blocks_new_position(storage, now=now)
+    if risk_block:
+        blockers.append(f"Risk Guard: {risk_block}")
+    return blockers
+
+
 def create_approval_request(
     storage: Any, candidate_id: int, proposal: dict[str, Any], market_price: float,
     technical: dict[str, Any] | None, *, symbol: str = "BTCUSDT", now: datetime | None = None,
@@ -74,8 +111,11 @@ def create_approval_request(
     ASAMA5_CAPITAL_USD isn't configured -- same "don't record a broken
     proposal" posture as paper_trading.open_position, which this
     deliberately mirrors so a real-money request is judged identically
-    to its paper counterpart, never a looser or stricter copy."""
-    if ASAMA5_CAPITAL_USD <= 0:
+    to its paper counterpart, never a looser or stricter copy.
+
+    Also returns None when any approval_blockers() gate fails -- checked
+    here, not only by the caller, so a direct call can't bypass them."""
+    if approval_blockers(storage, symbol, market_price, now=now):
         return None
     exits = compute_exit_levels(proposal, market_price, technical)
     if exits is None:

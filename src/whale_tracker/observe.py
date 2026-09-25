@@ -198,10 +198,10 @@ def run_once(
                                         candidate_id, proposal, markets[symbol]["mark_price"],
                                         deep_context["technical_snapshot"], symbol=symbol,
                                     )
-                                    if position:
-                                        db.insert_paper_position(position)
-                                        candidate["paper_position"] = position
-
+                                    # Aşama 5 goes first: it re-runs Risk Guard
+                                    # itself, and must see the same state that
+                                    # just cleared this paper position -- not
+                                    # the state after that position filled a slot.
                                     # Aşama 5 skeleton (see approval.py):
                                     # additive, never a replacement for
                                     # paper trading -- evaluation.py's own
@@ -215,6 +215,9 @@ def run_once(
                                             db, candidate_id, proposal, markets[symbol]["mark_price"],
                                             deep_context["technical_snapshot"], symbol=symbol,
                                         )
+                                    if position:
+                                        db.insert_paper_position(position)
+                                        candidate["paper_position"] = position
                         except ProposalError as error:
                             db.insert_ai_call_log(
                                 "kademe3_opus", attempted=1, succeeded=0,
