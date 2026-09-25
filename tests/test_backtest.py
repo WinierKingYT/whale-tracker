@@ -14,6 +14,7 @@ from whale_tracker.backtest.replay import (
     HistoricalSentimentReplay,
     NoNewsReplay,
 )
+from whale_tracker.execution import net_return_pct
 from whale_tracker.simulate import run_cycle
 from whale_tracker.storage import Storage
 
@@ -152,10 +153,13 @@ def _history_row(minutes: int, price: float, *, support: float = 95.0, resistanc
 def test_simulated_entry_follows_strategy_exit_rules():
     # stop = 95 * 0.98 = 93.1, target = 110 * 0.995 = 109.45
     winner = [_history_row(0, 100), _history_row(15, 105), _history_row(30, 110)]
-    assert baseline._simulate_entry(winner, 0) == pytest.approx((109.45 - 100) / 100)
+    # Net of the shared execution model (execution.py), same as paper trading.
+    assert baseline._simulate_entry(winner, 0) == pytest.approx(net_return_pct(100, "take_profit", 109.45, 110)[1])
 
     loser = [_history_row(0, 100), _history_row(15, 90)]
-    assert baseline._simulate_entry(loser, 0) == pytest.approx((93.1 - 100) / 100)
+    # Gapped through the stop to 90: filled at 90 (minus costs), not at 93.1.
+    assert baseline._simulate_entry(loser, 0) == pytest.approx(net_return_pct(100, "stopped_out", 93.1, 90)[1])
+    assert baseline._simulate_entry(loser, 0) < (90 - 100) / 100
 
     never_closes = [_history_row(0, 100), _history_row(15, 101)]
     assert baseline._simulate_entry(never_closes, 0) is None
@@ -235,7 +239,8 @@ def _sawtooth(cycles: int) -> list[dict]:
 def test_circular_shift_baseline_preserves_entry_spacing():
     rows = _sawtooth(800)
     winners = [rows[i] for i in range(0, 400, 40)]  # all at i % 4 == 0
-    positions = [{"symbol": "BTCUSDT", "opened_at": r["observed_at"], "pnl_pct": (109.45 - 100) / 100} for r in winners]
+    positions = [{"symbol": "BTCUSDT", "opened_at": r["observed_at"], "pnl_pct": net_return_pct(100, "take_profit", 109.45, 110)[1]}
+                 for r in winners]
     result = baseline.random_entry_baseline(_HistoryStorage(rows), positions, trials=400, seed=1)
     assert result["method"] == "circular_shift"
     # One shared shift moves every entry into the same phase, so each
@@ -283,6 +288,7 @@ class _IcStorage:
 
 def test_information_coefficient_finds_a_signal_that_drives_returns():
     import random as _random
+
     from whale_tracker.backtest.signal_ic import information_coefficient
 
     rng = _random.Random(4)

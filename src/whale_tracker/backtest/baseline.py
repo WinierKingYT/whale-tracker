@@ -34,6 +34,7 @@ from bisect import bisect_right
 from datetime import datetime, timedelta
 from typing import Any
 
+from whale_tracker.execution import EXIT_EXPIRY, EXIT_STOP, EXIT_TARGET, net_return_pct
 from whale_tracker.paper_trading import MAX_HOLD_DAYS, compute_exit_levels
 from whale_tracker.sources.proposal import _compute_stop_loss
 
@@ -61,14 +62,16 @@ def _simulate_entry(history: list[dict[str, Any]], index: int) -> float | None:
         later = history[later_index]
         price = later["mark_price"]
         if price <= stop_loss_price:
-            exit_price = stop_loss_price
+            kind, level = EXIT_STOP, stop_loss_price
         elif price >= take_profit_price:
-            exit_price = take_profit_price
+            kind, level = EXIT_TARGET, take_profit_price
         elif later["moment"] >= expires_at:
-            exit_price = price
+            kind, level = EXIT_EXPIRY, price
         else:
             continue
-        return (exit_price - entry["mark_price"]) / entry["mark_price"]
+        # Same execution model as paper_trading -- identical costs on
+        # both sides of the comparison.
+        return net_return_pct(entry["mark_price"], kind, level, price)[1]
     return None
 
 

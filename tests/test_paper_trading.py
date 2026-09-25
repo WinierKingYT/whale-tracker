@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from whale_tracker import paper_trading
+from whale_tracker import execution, paper_trading
 from whale_tracker.storage import Storage
 
 
@@ -71,7 +71,9 @@ def test_check_and_close_positions_closes_on_stop_loss(tmp_path):
 
     assert len(closed) == 1
     assert closed[0]["status"] == "stopped_out"
-    assert closed[0]["exit_price"] == 68600.0
+    # Price gapped to 68,500 before the cycle saw it: filled there, minus
+    # spread + slippage -- not at the 68,600 stop level.
+    assert closed[0]["exit_price"] == round(68500.0 * (1 - execution.HALF_SPREAD_PCT - execution.SLIPPAGE_PCT), 2)
     assert closed[0]["pnl_usd"] < 0
     assert remaining_open == []
 
@@ -110,7 +112,7 @@ def test_check_and_close_positions_expires_after_max_hold_days(tmp_path):
         closed = paper_trading.check_and_close_positions(db, current_prices={"BTCUSDT": 71000.0})
 
     assert closed[0]["status"] == "expired"
-    assert closed[0]["exit_price"] == 71000.0
+    assert closed[0]["exit_price"] == round(71000.0 * (1 - execution.HALF_SPREAD_PCT - execution.SLIPPAGE_PCT), 2)
 
 
 def test_check_and_close_positions_matches_each_position_to_its_own_symbol_price(tmp_path):

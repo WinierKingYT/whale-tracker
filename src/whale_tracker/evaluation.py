@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from whale_tracker.backtest.baseline import random_entry_baseline
+from whale_tracker.execution import EXIT_EXPIRY, net_return_pct
 from whale_tracker.paper_trading import VIRTUAL_CAPITAL_USD
 from whale_tracker.storage import Storage
 
@@ -100,7 +101,11 @@ def evaluate_paper_trading(storage: Any) -> dict[str, Any]:
     # Found by code review, not by a real failure yet.
     btc_end = storage.market_snapshot_near("BTCUSDT", closed[-1]["closed_at"])
     if btc_start and btc_end and btc_start["mark_price"]:
-        btc_hold_return_pct = round((btc_end["mark_price"] - btc_start["mark_price"]) / btc_start["mark_price"], 4)
+        # One round trip through the same execution model the strategy's
+        # trades pay (execution.py) -- a fair benchmark, not a free one.
+        btc_hold_return_pct = round(
+            net_return_pct(btc_start["mark_price"], EXIT_EXPIRY, btc_end["mark_price"], btc_end["mark_price"])[1], 4,
+        )
         beats_btc_hold = strategy_return_pct > btc_hold_return_pct
     else:
         # No BTCUSDT market history covering this window -- can't score

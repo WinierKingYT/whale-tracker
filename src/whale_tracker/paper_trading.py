@@ -68,6 +68,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from whale_tracker.execution import EXIT_EXPIRY, EXIT_STOP, EXIT_TARGET, net_return_pct
 from whale_tracker.sizing import position_size_usd
 
 # First-pass paper capital -- not real money, exists only so position
@@ -197,9 +198,12 @@ def open_position(
     }
 
 
-def _pnl(entry_price: float, exit_price: float, position_size_usd: float) -> tuple[float, float]:
-    pnl_pct = (exit_price - entry_price) / entry_price
-    return round(position_size_usd * pnl_pct, 2), round(pnl_pct, 4)
+def _pnl(entry_price: float, kind: str, level: float, observed_price: float,
+         position_size_usd: float) -> tuple[float, float, float]:
+    """(exit_fill_price, pnl_usd, pnl_pct) net of execution costs --
+    see execution.py; the random-entry baseline uses the same model."""
+    exit_price, pnl_pct = net_return_pct(entry_price, kind, level, observed_price)
+    return round(exit_price, 2), round(position_size_usd * pnl_pct, 2), round(pnl_pct, 4)
 
 
 def check_and_close_positions(
@@ -225,15 +229,16 @@ def check_and_close_positions(
             continue
         opened_at = datetime.fromisoformat(position["opened_at"])
         if current_price <= position["stop_loss_price"]:
-            exit_price, status = position["stop_loss_price"], "stopped_out"
+            level, status = position["stop_loss_price"], EXIT_STOP
         elif current_price >= position["take_profit_price"]:
-            exit_price, status = position["take_profit_price"], "take_profit"
+            level, status = position["take_profit_price"], EXIT_TARGET
         elif now - opened_at >= timedelta(days=MAX_HOLD_DAYS):
-            exit_price, status = current_price, "expired"
+            level, status = current_price, EXIT_EXPIRY
         else:
             continue
 
-        pnl_usd, pnl_pct = _pnl(position["entry_price"], exit_price, position["position_size_usd"])
+        exit_price, pnl_usd, pnl_pct = _pnl(position["entry_price"], status, level, current_price,
+                                            position["position_size_usd"])
         storage.close_paper_position(
             position["id"], exit_price=exit_price, status=status,
             closed_at=now.isoformat(), pnl_usd=pnl_usd, pnl_pct=pnl_pct,

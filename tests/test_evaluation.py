@@ -113,7 +113,8 @@ def test_btc_hold_comparison_uses_btcusdt_market_snapshots_not_position_price(tm
 
         scorecard = evaluation.evaluate_paper_trading(db)
 
-    assert scorecard["btc_hold_return_pct"] == 0.1
+    # +10% gross, minus one round trip through execution.py (fair benchmark)
+    assert scorecard["btc_hold_return_pct"] == 0.0983
     assert scorecard["beats_btc_hold"] is False  # +1% strategy return vs +10% BTC-hold
 
 
