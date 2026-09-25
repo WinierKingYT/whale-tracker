@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from bisect import bisect_right
+from bisect import bisect_left
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -543,11 +543,15 @@ class Storage:
         replay random entries under the exact exit rules the strategy's
         own positions got.
 
-        Pairs each market snapshot with the latest technical snapshot up
-        to SAME_CYCLE_TOLERANCE after it, not by equal timestamps: the
-        simulator and backtest stamp both identically, but the live
-        observer fetches technicals a second or two after the market
-        snapshot, so an equality join matched 0 rows on real data."""
+        Same-cycle rule, explicit on both sides: a market snapshot at t
+        pairs with the EARLIEST technical snapshot in [t, t +
+        SAME_CYCLE_TOLERANCE] -- observe.py fetches market first, then
+        technical, a second or two later (equality joins matched 0 rows on
+        real data). A technical from BEFORE t is a previous cycle's (e.g.
+        this cycle's technical fetch failed) and is never used; each
+        technical pairs with at most one market snapshot. A market
+        snapshot with no same-cycle technical is dropped, not filled from
+        a neighbouring cycle."""
         markets = self._conn.execute(
             "SELECT observed_at, mark_price FROM market_snapshots WHERE symbol = ? ORDER BY observed_at", (symbol,),
         ).fetchall()
@@ -557,10 +561,16 @@ class Storage:
         ).fetchall()
         technical_times = [datetime.fromisoformat(row["observed_at"]) for row in technicals]
         history = []
+        used: set[int] = set()
         for market in markets:
-            limit = datetime.fromisoformat(market["observed_at"]) + SAME_CYCLE_TOLERANCE
-            index = bisect_right(technical_times, limit) - 1
-            if index >= 0:
+            market_time = datetime.fromisoformat(market["observed_at"])
+            index = bisect_left(technical_times, market_time)
+            if (
+                index < len(technicals)
+                and index not in used
+                and technical_times[index] - market_time <= SAME_CYCLE_TOLERANCE
+            ):
+                used.add(index)
                 history.append({
                     "observed_at": market["observed_at"], "mark_price": market["mark_price"],
                     "support": technicals[index]["support"], "resistance": technicals[index]["resistance"],
