@@ -68,6 +68,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from whale_tracker.sizing import position_size_usd
+
 # First-pass paper capital -- not real money, exists only so position
 # sizing (the 1%-of-capital rule from proposal.py) has a concrete dollar
 # base to size against. Revisit once this project has weeks of paper
@@ -167,6 +169,10 @@ def open_position(
     if exits is None:
         return None
     stop_loss_price, take_profit_price = exits
+    size_usd = position_size_usd(VIRTUAL_CAPITAL_USD, market_price, stop_loss_price,
+                                 risk_pct=proposal["max_position_size_pct"])
+    if size_usd is None:
+        return None
 
     return {
         "signal_candidate_id": candidate_id,
@@ -174,7 +180,7 @@ def open_position(
         "entry_price": market_price,
         "stop_loss_price": stop_loss_price,
         "take_profit_price": take_profit_price,
-        "position_size_usd": round(VIRTUAL_CAPITAL_USD * proposal["max_position_size_pct"], 2),
+        "position_size_usd": size_usd,
         "status": "open",
         "opened_at": (now or datetime.now(UTC)).isoformat(),
     }

@@ -21,7 +21,11 @@ def test_open_position_computes_take_profit_and_size():
     assert position["entry_price"] == 70000.0
     assert position["stop_loss_price"] == 68600.0
     assert position["take_profit_price"] == round(75000.0 * (1 - paper_trading.TAKE_PROFIT_RESISTANCE_BUFFER_PCT), 2)
-    assert position["position_size_usd"] == round(paper_trading.VIRTUAL_CAPITAL_USD * 0.01, 2)
+    # 1% ACCOUNT risk over a 2% stop: $100 risk / 0.02 = $5,000 notional,
+    # so hitting the stop loses exactly 1% of capital.
+    assert position["position_size_usd"] == 5000.0
+    loss_at_stop = position["position_size_usd"] * (70000.0 - 68600.0) / 70000.0
+    assert loss_at_stop == paper_trading.VIRTUAL_CAPITAL_USD * 0.01
     assert position["status"] == "open"
 
 

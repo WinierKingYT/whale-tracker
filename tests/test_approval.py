@@ -133,7 +133,8 @@ def test_create_approval_request_creates_pending_row(tmp_path, monkeypatch):
 
         assert request is not None
         assert request["status"] == "pending"
-        assert request["position_size_usd"] == 5.0  # 500 * 0.01
+        # $5 risk (1% of 500) over a 68000/70000 stop (2.857%) = $175 notional
+        assert request["position_size_usd"] == 175.0
         pending = db.pending_approval_requests()
         assert len(pending) == 1
         assert pending[0]["id"] == request["id"]

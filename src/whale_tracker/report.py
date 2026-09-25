@@ -96,7 +96,7 @@ def render_report(
                     )
                     lines.append(
                         f"      stop-loss=${proposal['stop_loss_price']:,.0f}, "
-                        f"maks. pozisyon=%{proposal['max_position_size_pct']*100:.0f}"
+                        f"hesap riski=%{proposal['max_position_size_pct']*100:.0f}"
                     )
                     lines.append(f"      en kötü senaryo: {proposal['worst_case_scenario']}")
                     for counter in proposal["counter_arguments"]:

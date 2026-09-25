@@ -38,6 +38,7 @@ from typing import Any
 from whale_tracker.evaluation import evaluate_paper_trading
 from whale_tracker.evidence import freshness_problems
 from whale_tracker.paper_trading import compute_exit_levels, risk_guard_blocks_new_position
+from whale_tracker.sizing import position_size_usd
 from whale_tracker.sources.binance import BinanceMarketDataError, fetch_market_snapshot
 from whale_tracker.sources.technical import TechnicalDataError, fetch_technical_snapshot
 from whale_tracker.storage import Storage
@@ -135,6 +136,11 @@ def create_approval_request(
     if exits is None:
         return None
     stop_loss_price, take_profit_price = exits
+    # Same sizing function as paper_trading.open_position -- never a copy.
+    size_usd = position_size_usd(ASAMA5_CAPITAL_USD, market_price, stop_loss_price,
+                                 risk_pct=proposal["max_position_size_pct"])
+    if size_usd is None:
+        return None
 
     request = {
         "signal_candidate_id": candidate_id,
@@ -142,7 +148,7 @@ def create_approval_request(
         "entry_price": market_price,
         "stop_loss_price": stop_loss_price,
         "take_profit_price": take_profit_price,
-        "position_size_usd": round(ASAMA5_CAPITAL_USD * proposal["max_position_size_pct"], 2),
+        "position_size_usd": size_usd,
         "status": "pending",
         "created_at": now.isoformat(),
         "expires_at": (now + APPROVAL_TTL).isoformat(),

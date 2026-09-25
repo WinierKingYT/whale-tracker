@@ -12,8 +12,9 @@ signal.py's own docstring states for itself.
 Two things are deliberately NOT left to the AI's judgment, per section 7's
 "Risk Kurallari (Degismez Anayasa)" -- position size and stop-loss are
 fixed code constants/derivations, not AI-proposed numbers:
-- MAX_POSITION_SIZE_PCT: the 1%-of-capital cap is a fixed rule, not a
-  per-trade AI decision.
+- MAX_POSITION_SIZE_PCT: the 1% ACCOUNT-RISK rule (loss at stop = 1% of
+  capital), not a per-trade AI decision. Despite the historical name it is
+  not a notional cap -- sizing.position_size_usd turns it into a size.
 - stop_loss_price: derived deterministically from the technical snapshot's
   support level (code), never from free-form AI output -- guarantees
   "Her islemin mutlaka stop-loss'u olur" instead of hoping the model
@@ -30,11 +31,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from whale_tracker.sizing import ACCOUNT_RISK_PCT
+
 from .analysis import AnalysisError, _call_claude
 
 # Section 7: "Islem basina maksimum risk: sermayenin %1'i" -- fixed, never
 # a per-trade AI decision.
-MAX_POSITION_SIZE_PCT = 0.01
+# Historical name kept (it is also a final_proposals column); the value is
+# account risk per trade, see sizing.py.
+MAX_POSITION_SIZE_PCT = ACCOUNT_RISK_PCT
 
 # Not calibrated against this project's own trade history yet (there is
 # none -- no trades exist) -- a conservative first-pass buffer below the
