@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from whale_tracker.approval import asama5_active, create_approval_request
+from whale_tracker.digest import notify_after_cycle
 from whale_tracker.paper_trading import check_and_close_positions, open_position, risk_guard_blocks_new_position
 from whale_tracker.report import render_report
 from whale_tracker.signal import generate_candidates
@@ -216,6 +217,14 @@ def run_once(
         # this cycle's current prices.
         current_prices = {symbol: m["mark_price"] for symbol, m in markets.items() if m}
         closed_positions = check_and_close_positions(db, current_prices) if current_prices else []
+
+        # Daily digest + instant alerts (digest.py). Notification is a
+        # side channel: whatever goes wrong there (network, a malformed
+        # local config) must never fail the data-collection cycle.
+        try:
+            notify_after_cycle(db, candidates=all_candidates, closed_positions=closed_positions)
+        except Exception as error:  # noqa: BLE001 -- deliberate boundary, see comment above
+            print(f"[uyarı] bildirim adımı atlandı: {type(error).__name__}: {error}", file=sys.stderr)
 
         return render_report(
             onchain_events=onchain_events,

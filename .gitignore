@@ -9,3 +9,4 @@ data/*.log
 logs/
 scripts/run-observer-hidden.vbs
 data/backtest-cache/
+data/notify-config.json
