@@ -289,6 +289,8 @@ def test_information_coefficient_finds_a_signal_that_drives_returns():
             rows.append({"observed_at": moment.isoformat(), "mark_price": price, "support": 1, "resistance": 2})
     result = information_coefficient(_IcStorage(rows, events), "BTCUSDT", horizon_cycles=96, trials=200)
     assert result["ic"] > 0.5
+    assert result["p_positive"] <= result["p_value"]  # a strongly positive IC sits in the upper tail
+    assert result["p_negative"] > 0.5
     assert result["independent_windows"] > 50
     assert result["mean_forward_after_accumulation"] > 0 > result["mean_forward_after_distribution"]
 

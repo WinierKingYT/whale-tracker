@@ -113,6 +113,11 @@ def information_coefficient(
         "horizon_hours": horizon_cycles * cycle_minutes / 60,
         "ic": round(ic, 4),
         "p_value": round(sum(1 for z in null if abs(z) >= abs(ic)) / trials, 4),
+        # One-sided tails, for a hypothesis written down before looking
+        # (docs/preregistration/): p_negative is how often a shifted null
+        # IC is at least as negative as the observed one.
+        "p_negative": round(sum(1 for z in null if z <= ic) / trials, 4),
+        "p_positive": round(sum(1 for z in null if z >= ic) / trials, 4),
         "independent_windows": round(independent_windows, 1),
         # Rough 2-sigma detection floor: an IC smaller than this can't be
         # told apart from noise with this many independent windows.

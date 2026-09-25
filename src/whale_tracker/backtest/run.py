@@ -169,7 +169,8 @@ def render(result: dict[str, Any], *, start: datetime, end: datetime) -> str:
             if after_acc is not None and after_dist is not None else ""
         )
         lines.append(
-            f"{ic['symbol']} {ic['horizon_hours']:.0f}s: IC={ic['ic']:+.3f} (p={ic['p_value']:.3f}), "
+            f"{ic['symbol']} {ic['horizon_hours']:.0f}s: IC={ic['ic']:+.3f} (iki yönlü p={ic['p_value']:.3f}; "
+            f"tek yönlü: negatif p={ic['p_negative']:.3f}, pozitif p={ic['p_positive']:.3f}), "
             f"~{ic['independent_windows']:.0f} bağımsız pencere -> ancak |IC| >= {ic['detectable_ic']:.2f} ayırt edilebilir{spread}"
         )
     if result["ics"] and max(ic["detectable_ic"] for ic in result["ics"]) > 0.3:
