@@ -80,27 +80,61 @@ def _rpc(method: str, params: list[Any], retries: int = 3, *, url: str = RPC_URL
     raise OnchainScanError(f"RPC call failed after {retries} attempts: {method} ({last_error})") from None
 
 
-def _load_known_wallets() -> dict[str, str]:
-    """Return {lowercase_address: label} for every wallet in
-    data/known-exchange-wallets.json. Covers exchanges, notable non-exchange
-    entities (funds/institutions), DEX infrastructure (tagged "DEX: ..." --
-    NOT whale signal, see the file's own note), and flagged addresses
-    (tagged "⚠ FLAGGED: ..." -- connected to reported bad activity).
-    excluded_or_deferred entries have no addresses to load."""
+# Explicit entity categories for every labeled address. Only EXCHANGE
+# wallets count toward exchange flow; a fund moving stablecoins is still
+# worth reporting, but it is not "money going onto an exchange."
+ENTITY_EXCHANGE = "exchange"
+ENTITY_INSTITUTION = "institution"
+ENTITY_DEX = "dex"
+ENTITY_FLAGGED = "flagged"
+ENTITY_TYPES = (ENTITY_EXCHANGE, ENTITY_INSTITUTION, ENTITY_DEX, ENTITY_FLAGGED)
+
+
+def load_wallet_registry() -> dict[str, tuple[str, str]]:
+    """Return {lowercase_address: (display_label, entity_type)} for every
+    wallet in data/known-exchange-wallets.json. The entity type comes from
+    WHICH SECTION of the file an address sits in -- never from parsing the
+    display label. Later sections override earlier ones, so an address
+    that is both listed somewhere and flagged ends up flagged (fail-closed:
+    it stops counting as exchange flow). excluded_or_deferred entries have
+    no addresses to load."""
     if not _WALLETS_PATH.is_file():
         return {}
     payload = json.loads(_WALLETS_PATH.read_text(encoding="utf-8"))
-    lookup: dict[str, str] = {}
+    registry: dict[str, tuple[str, str]] = {}
     for exchange_name, entry in payload.get("exchanges", {}).items():
         for wallet in entry.get("wallets", []):
-            lookup[wallet["address"].lower()] = exchange_name
+            registry[wallet["address"].lower()] = (exchange_name, ENTITY_EXCHANGE)
     for entity in payload.get("notable_non_exchange_entities", {}).get("entities", []):
-        lookup[entity["address"].lower()] = entity["label"]
+        registry[entity["address"].lower()] = (entity["label"], ENTITY_INSTITUTION)
     for contract in payload.get("dex_infrastructure", {}).get("contracts", []):
-        lookup[contract["address"].lower()] = f"DEX: {contract['label']}"
+        registry[contract["address"].lower()] = (f"DEX: {contract['label']}", ENTITY_DEX)
     for flagged in payload.get("flagged_addresses", {}).get("entries", []):
-        lookup[flagged["address"].lower()] = f"⚠ FLAGGED: {flagged['reason'][:60]}"
-    return lookup
+        registry[flagged["address"].lower()] = (f"⚠ FLAGGED: {flagged['reason'][:60]}", ENTITY_FLAGGED)
+    return registry
+
+
+def _load_known_wallets() -> dict[str, str]:
+    """{lowercase_address: display_label} -- labels are for humans only.
+    Anything that decides what counts as flow must use the entity type
+    (load_wallet_registry / exchange_wallets), not these strings."""
+    return {address: label for address, (label, _) in load_wallet_registry().items()}
+
+
+def exchange_wallets() -> dict[str, str]:
+    """{lowercase_address: label} for exchange-owned wallets only -- the
+    exact set exchange flow counts, shared by live, simulation and
+    backtest."""
+    return {a: label for a, (label, kind) in load_wallet_registry().items() if kind == ENTITY_EXCHANGE}
+
+
+def tag_event(event: dict[str, Any], registry: dict[str, tuple[str, str]]) -> dict[str, Any]:
+    """Fill both sides' display label and entity type from the registry."""
+    for side in ("from", "to"):
+        label, kind = registry.get(event[f"{side}_address"].lower(), (None, None))
+        event[f"{side}_known_exchange"] = label
+        event[f"{side}_entity_type"] = kind
+    return event
 
 
 def current_block_number() -> int:
@@ -128,7 +162,7 @@ def scan_new_transfers(
     """Scan blocks since the last checkpoint for large stablecoin transfers.
     Returns the list of newly-recorded events (empty list is normal --
     most polls find nothing above threshold)."""
-    known_wallets = _load_known_wallets()
+    registry = load_wallet_registry()
     latest = current_block_number()
 
     cursor = storage.get_scan_cursor(cursor_key)
@@ -160,10 +194,9 @@ def scan_new_transfers(
                 "to_address": to_addr,
                 "amount_usd_estimate": amount,
                 "raw_amount": str(raw_amount),
-                "from_known_exchange": known_wallets.get(from_addr.lower()),
-                "to_known_exchange": known_wallets.get(to_addr.lower()),
                 "observed_at": observed_at,
             }
+            tag_event(event, registry)
             if storage.insert_onchain_event(event):
                 new_events.append(event)
 

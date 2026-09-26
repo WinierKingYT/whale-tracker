@@ -30,13 +30,17 @@ from __future__ import annotations
 
 import argparse
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from whale_tracker.evaluation import evaluate_paper_trading, render_evaluation_report
 from whale_tracker.observe import TRACKED_SYMBOLS
-from whale_tracker.paper_trading import check_and_close_positions, open_position, risk_guard_blocks_new_position
+from whale_tracker.paper_trading import (
+    available_notional_usd,
+    check_and_close_positions,
+    open_position,
+    risk_guard_blocks_new_position,
+)
 from whale_tracker.report import render_report
 from whale_tracker.signal import generate_candidates
 from whale_tracker.simulation.market import MarketSimulator
@@ -45,7 +49,13 @@ from whale_tracker.simulation.onchain import OnchainSimulator
 from whale_tracker.simulation.sentiment import SentimentSimulator
 from whale_tracker.sources.analysis import AnalysisError, generate_deep_analysis
 from whale_tracker.sources.classify import classify_top_events
-from whale_tracker.sources.proposal import MAX_POSITION_SIZE_PCT, ProposalError, _compute_stop_loss, _no_action, generate_final_proposal
+from whale_tracker.sources.proposal import (
+    MAX_POSITION_SIZE_PCT,
+    ProposalError,
+    _compute_stop_loss,
+    _no_action,
+    generate_final_proposal,
+)
 from whale_tracker.storage import Storage
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "simulation.db"
@@ -205,6 +215,7 @@ def run_cycle(
                     position = open_position(
                         candidate_id, proposal, market_snapshots[symbol]["mark_price"],
                         technical_snapshots[symbol], symbol=symbol, now=simulated_now_dt,
+                        available_notional=available_notional_usd(db),
                     )
                     if position:
                         db.insert_paper_position(position)

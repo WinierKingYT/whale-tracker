@@ -32,7 +32,7 @@ def test_event_shape_matches_real_source_contract():
     event = events[0]
     assert set(event.keys()) == {
         "tx_hash", "log_index", "block_number", "token", "from_address", "to_address",
-        "amount_usd_estimate", "raw_amount", "from_known_exchange", "to_known_exchange", "observed_at",
+        "amount_usd_estimate", "raw_amount", "from_known_exchange", "to_known_exchange", "from_entity_type", "to_entity_type", "observed_at",
     }
     assert event["token"] in {"USDT", "USDC"}
 

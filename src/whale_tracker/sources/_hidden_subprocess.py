@@ -30,7 +30,7 @@ import os
 import subprocess
 import threading
 from ctypes import wintypes
-from typing import Any
+from typing import Any, Self
 
 
 def hidden_subprocess_kwargs() -> dict[str, Any]:
@@ -96,7 +96,7 @@ class _WindowHider:
                 pass  # best-effort -- never let the watcher itself break the real call
             self._stop.wait(self._POLL_INTERVAL_S)
 
-    def __enter__(self) -> "_WindowHider":
+    def __enter__(self) -> Self:
         if os.name == "nt":
             self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
@@ -152,7 +152,7 @@ def run_hidden_and_reap(command: list[str], *, timeout: float) -> subprocess.Com
         if os.name == "nt":
             subprocess.run(
                 ["taskkill", "/F", "/T", "/PID", str(process.pid)],
-                capture_output=True, **hidden_subprocess_kwargs(),
+                capture_output=True, check=False, **hidden_subprocess_kwargs(),
             )
         else:
             process.kill()

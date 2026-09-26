@@ -11,13 +11,18 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from whale_tracker.approval import asama5_active, create_approval_request
+from whale_tracker.approval import asama5_active, create_approval_request, expire_stale_requests
 from whale_tracker.digest import notify_after_cycle
-from whale_tracker.paper_trading import check_and_close_positions, open_position, risk_guard_blocks_new_position
+from whale_tracker.evidence import ABSTAIN, freshness_problems
+from whale_tracker.paper_trading import (
+    available_notional_usd,
+    check_and_close_positions,
+    open_position,
+    risk_guard_blocks_new_position,
+)
 from whale_tracker.report import render_report
 from whale_tracker.signal import generate_candidates
 from whale_tracker.sources.analysis import AnalysisError, generate_deep_analysis
-from whale_tracker.sources.proposal import ProposalError, generate_final_proposal
 from whale_tracker.sources.binance import BinanceMarketDataError, fetch_market_snapshot
 from whale_tracker.sources.classify import (
     CIRCUIT_BREAKER_COOLDOWN_MINUTES,
@@ -27,6 +32,7 @@ from whale_tracker.sources.classify import (
 )
 from whale_tracker.sources.news import NewsFeedError, fetch_headlines
 from whale_tracker.sources.onchain import OnchainScanError, scan_new_transfers
+from whale_tracker.sources.proposal import ProposalError, generate_final_proposal
 from whale_tracker.sources.sentiment import FearGreedError, fetch_fear_greed
 from whale_tracker.sources.technical import TechnicalDataError, fetch_technical_snapshot
 from whale_tracker.storage import Storage
@@ -47,6 +53,10 @@ def run_once(
     with Storage(db_path) as db:
         markets: dict[str, dict | None] = {}
         technicals: dict[str, dict | None] = {}
+        # Per-symbol reasons this cycle must ABSTAIN (evidence.py). The DB
+        # fallback below is kept for position monitoring and the report --
+        # never as evidence for a new decision.
+        abstain_reasons: dict[str, list[str]] = {symbol: [] for symbol in TRACKED_SYMBOLS}
         for symbol in TRACKED_SYMBOLS:
             try:
                 markets[symbol] = fetch_market_snapshot(symbol)
@@ -54,6 +64,7 @@ def run_once(
             except BinanceMarketDataError as error:
                 print(f"[uyarı] {symbol} Binance verisi alınamadı: {error}", file=sys.stderr)
                 markets[symbol] = db.latest_market_snapshot(symbol)
+                abstain_reasons[symbol].append("market verisi bu döngüde alınamadı")
 
             try:
                 technicals[symbol] = fetch_technical_snapshot(symbol)
@@ -61,6 +72,7 @@ def run_once(
             except TechnicalDataError as error:
                 print(f"[uyarı] {symbol} teknik verisi alınamadı: {error}", file=sys.stderr)
                 technicals[symbol] = db.latest_technical_snapshot(symbol)
+                abstain_reasons[symbol].append("technical verisi bu döngüde alınamadı")
 
         try:
             sentiment = fetch_fear_greed()
@@ -74,6 +86,9 @@ def run_once(
         except OnchainScanError as error:
             print(f"[uyarı] Zincir üstü tarama başarısız: {error}", file=sys.stderr)
             onchain_events = []
+            # A failed scan leaves the flow window silently incomplete.
+            for reasons in abstain_reasons.values():
+                reasons.append("zincir üstü tarama bu döngüde başarısız")
 
         try:
             new_headlines = [h for h in fetch_headlines() if db.insert_headline(h)]
@@ -119,6 +134,10 @@ def run_once(
         # signal.py's own docstring.
         all_candidates: list[dict] = []
         for symbol in TRACKED_SYMBOLS:
+            abstain_reasons[symbol].extend(freshness_problems(db, symbol))
+            if abstain_reasons[symbol]:
+                print(f"[{ABSTAIN}] {symbol}: {'; '.join(abstain_reasons[symbol])}", file=sys.stderr)
+                continue
             candidates = generate_candidates(db, symbol=symbol)
             all_candidates.extend(candidates)
             for candidate in candidates:
@@ -179,11 +198,12 @@ def run_once(
                                     position = open_position(
                                         candidate_id, proposal, markets[symbol]["mark_price"],
                                         deep_context["technical_snapshot"], symbol=symbol,
+                                        available_notional=available_notional_usd(db),
                                     )
-                                    if position:
-                                        db.insert_paper_position(position)
-                                        candidate["paper_position"] = position
-
+                                    # Aşama 5 goes first: it re-runs Risk Guard
+                                    # itself, and must see the same state that
+                                    # just cleared this paper position -- not
+                                    # the state after that position filled a slot.
                                     # Aşama 5 skeleton (see approval.py):
                                     # additive, never a replacement for
                                     # paper trading -- evaluation.py's own
@@ -197,6 +217,9 @@ def run_once(
                                             db, candidate_id, proposal, markets[symbol]["mark_price"],
                                             deep_context["technical_snapshot"], symbol=symbol,
                                         )
+                                    if position:
+                                        db.insert_paper_position(position)
+                                        candidate["paper_position"] = position
                         except ProposalError as error:
                             db.insert_ai_call_log(
                                 "kademe3_opus", attempted=1, succeeded=0,
@@ -211,6 +234,8 @@ def run_once(
                         error_reason=str(error)[:200], called_at=datetime.now(UTC).isoformat(),
                     )
                     print(f"[uyarı] Kademe 2 analiz başarısız: {error}", file=sys.stderr)
+
+        expire_stale_requests(db)
 
         # Every cycle, regardless of whether a new candidate showed up:
         # check already-open paper positions (any tracked symbol) against
@@ -233,6 +258,7 @@ def run_once(
             headlines=new_headlines,
             signal_candidates=all_candidates,
             closed_positions=closed_positions,
+            abstentions=abstain_reasons,
         )
 
 

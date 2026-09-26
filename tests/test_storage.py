@@ -164,3 +164,47 @@ def test_recent_ai_calls_returns_newest_first_limited_and_filtered_by_type(tmp_p
 
     assert len(recent) == 1
     assert recent[0]["called_at"] == "2026-09-24T10:15:00+00:00"
+
+
+# --- WT-05.1 P1: price_and_levels_history pairs strictly within one cycle ---
+
+def _pairing_db(tmp_path, market_minutes, technical_minutes):
+    from datetime import UTC, datetime, timedelta
+
+    base = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
+    db = Storage(tmp_path / "pair.db")
+    for m in market_minutes:
+        db.insert_market_snapshot({"symbol": "BTCUSDT", "funding_rate": 0.0, "open_interest": 1.0,
+                                   "mark_price": 100.0 + m, "observed_at": (base + timedelta(minutes=m)).isoformat()})
+    for m in technical_minutes:
+        db.insert_technical_snapshot({
+            "symbol": "BTCUSDT", "current_price": 100.0, "support": 90.0 + m, "resistance": 110.0 + m, "sma": 100.0,
+            "trend": "yatay", "volatility_daily_stddev": 0.01, "distance_to_support_pct": 0.1,
+            "is_above_support": True, "is_near_support": False, "distance_to_resistance_pct": 0.1,
+            "is_near_resistance": False, "observed_at": (base + timedelta(minutes=m)).isoformat(),
+        })
+    return db
+
+
+def test_pairing_uses_the_technical_fetched_just_after_the_market(tmp_path):
+    with _pairing_db(tmp_path, [0, 15], [0.03, 15.03]) as db:
+        rows = db.price_and_levels_history("BTCUSDT")
+    assert [r["support"] for r in rows] == [90.03, 105.03]
+
+
+def test_previous_cycles_technical_is_never_paired(tmp_path):
+    """Cycle at 15: technical fetch failed, so the only earlier one is cycle 0's."""
+    with _pairing_db(tmp_path, [0, 15], [0.03]) as db:
+        rows = db.price_and_levels_history("BTCUSDT")
+    assert [r["mark_price"] for r in rows] == [100.0]  # the 15-min market row is dropped, not paired with 0.03
+
+
+def test_technical_outside_the_same_cycle_window_is_not_paired(tmp_path):
+    with _pairing_db(tmp_path, [0], [10]) as db:  # 10 min later = next-cycle territory
+        assert db.price_and_levels_history("BTCUSDT") == []
+
+
+def test_one_technical_pairs_with_at_most_one_market(tmp_path):
+    with _pairing_db(tmp_path, [0, 1], [2]) as db:
+        rows = db.price_and_levels_history("BTCUSDT")
+    assert len(rows) == 1

@@ -113,7 +113,8 @@ def test_btc_hold_comparison_uses_btcusdt_market_snapshots_not_position_price(tm
 
         scorecard = evaluation.evaluate_paper_trading(db)
 
-    assert scorecard["btc_hold_return_pct"] == 0.1
+    # +10% gross, minus one round trip through execution.py (fair benchmark)
+    assert scorecard["btc_hold_return_pct"] == 0.0983
     assert scorecard["beats_btc_hold"] is False  # +1% strategy return vs +10% BTC-hold
 
 
@@ -206,7 +207,7 @@ def _seed_world_where_entry_timing_matters(db) -> None:
     first. The strategy's 10 trades all enter at phase 0 -- a timing edge
     a random entry only matches ~1 time in 58."""
     base = datetime(2026, 1, 1, tzinfo=UTC)
-    moment = lambda i: (base + timedelta(minutes=15 * i)).isoformat()  # noqa: E731
+    moment = lambda i: (base + timedelta(minutes=15 * i)).isoformat()
     for i in range(60 * 20):
         phase = i % 60
         price = 110.0 if phase == 1 else 90.0 if phase == 59 else 100.0

@@ -68,6 +68,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from whale_tracker.execution import EXIT_EXPIRY, EXIT_STOP, EXIT_TARGET, net_return_pct
+from whale_tracker.sizing import position_size_usd
+
 # First-pass paper capital -- not real money, exists only so position
 # sizing (the 1%-of-capital rule from proposal.py) has a concrete dollar
 # base to size against. Revisit once this project has weeks of paper
@@ -113,6 +116,14 @@ def _daily_pnl_pct(storage: Any, *, now: datetime) -> float:
     return total_usd / VIRTUAL_CAPITAL_USD
 
 
+def available_notional_usd(storage: Any) -> float:
+    """Capital not already committed to open paper positions. With 1%
+    account-risk sizing a single position can be most of the capital, so
+    the concurrent-position cap alone would allow ~3x leverage."""
+    committed = sum(p["position_size_usd"] for p in storage.open_paper_positions())
+    return VIRTUAL_CAPITAL_USD - committed
+
+
 def risk_guard_blocks_new_position(storage: Any, *, now: datetime | None = None) -> str | None:
     """Returns a human-readable reason if the plan's own fixed risk rules
     block opening ANY new position right now, else None. Call this before
@@ -123,6 +134,8 @@ def risk_guard_blocks_new_position(storage: Any, *, now: datetime | None = None)
     now = now or datetime.now(UTC)
     if len(storage.open_paper_positions()) >= MAX_CONCURRENT_POSITIONS:
         return f"eşzamanlı pozisyon tavanı doldu (>={MAX_CONCURRENT_POSITIONS})"
+    if available_notional_usd(storage) <= 0:
+        return f"toplam açık pozisyon büyüklüğü sermayeye ulaştı (${VIRTUAL_CAPITAL_USD:,.0f})"
     daily_pnl_pct = _daily_pnl_pct(storage, now=now)
     if daily_pnl_pct <= -MAX_DAILY_LOSS_PCT:
         return f"günlük kayıp sınırı aşıldı ({daily_pnl_pct:+.2%}, sınır {-MAX_DAILY_LOSS_PCT:.0%})"
@@ -154,7 +167,7 @@ def compute_exit_levels(
 
 def open_position(
     candidate_id: int, proposal: dict[str, Any], market_price: float, technical: dict[str, Any] | None,
-    *, symbol: str = "BTCUSDT", now: datetime | None = None,
+    *, symbol: str = "BTCUSDT", now: datetime | None = None, available_notional: float | None = None,
 ) -> dict[str, Any] | None:
     """Open a paper position from a Kademe 3 long_candidate proposal.
     Returns None (does not open) when the risk/reward setup doesn't make
@@ -167,6 +180,11 @@ def open_position(
     if exits is None:
         return None
     stop_loss_price, take_profit_price = exits
+    size_usd = position_size_usd(VIRTUAL_CAPITAL_USD, market_price, stop_loss_price,
+                                 risk_pct=proposal["max_position_size_pct"],
+                                 available_notional_usd=available_notional)
+    if size_usd is None:
+        return None
 
     return {
         "signal_candidate_id": candidate_id,
@@ -174,15 +192,18 @@ def open_position(
         "entry_price": market_price,
         "stop_loss_price": stop_loss_price,
         "take_profit_price": take_profit_price,
-        "position_size_usd": round(VIRTUAL_CAPITAL_USD * proposal["max_position_size_pct"], 2),
+        "position_size_usd": size_usd,
         "status": "open",
         "opened_at": (now or datetime.now(UTC)).isoformat(),
     }
 
 
-def _pnl(entry_price: float, exit_price: float, position_size_usd: float) -> tuple[float, float]:
-    pnl_pct = (exit_price - entry_price) / entry_price
-    return round(position_size_usd * pnl_pct, 2), round(pnl_pct, 4)
+def _pnl(entry_price: float, kind: str, level: float, observed_price: float,
+         position_size_usd: float) -> tuple[float, float, float]:
+    """(exit_fill_price, pnl_usd, pnl_pct) net of execution costs --
+    see execution.py; the random-entry baseline uses the same model."""
+    exit_price, pnl_pct = net_return_pct(entry_price, kind, level, observed_price)
+    return round(exit_price, 2), round(position_size_usd * pnl_pct, 2), round(pnl_pct, 4)
 
 
 def check_and_close_positions(
@@ -208,15 +229,16 @@ def check_and_close_positions(
             continue
         opened_at = datetime.fromisoformat(position["opened_at"])
         if current_price <= position["stop_loss_price"]:
-            exit_price, status = position["stop_loss_price"], "stopped_out"
+            level, status = position["stop_loss_price"], EXIT_STOP
         elif current_price >= position["take_profit_price"]:
-            exit_price, status = position["take_profit_price"], "take_profit"
+            level, status = position["take_profit_price"], EXIT_TARGET
         elif now - opened_at >= timedelta(days=MAX_HOLD_DAYS):
-            exit_price, status = current_price, "expired"
+            level, status = current_price, EXIT_EXPIRY
         else:
             continue
 
-        pnl_usd, pnl_pct = _pnl(position["entry_price"], exit_price, position["position_size_usd"])
+        exit_price, pnl_usd, pnl_pct = _pnl(position["entry_price"], status, level, current_price,
+                                            position["position_size_usd"])
         storage.close_paper_position(
             position["id"], exit_price=exit_price, status=status,
             closed_at=now.isoformat(), pnl_usd=pnl_usd, pnl_pct=pnl_pct,

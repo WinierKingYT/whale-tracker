@@ -13,6 +13,7 @@ def _seed_outflow_event(db, *, amount, hours_ago=1):
         "tx_hash": f"0x{hours_ago}-{amount}", "log_index": 0, "block_number": 1, "token": "USDT",
         "from_address": "0xexchange", "to_address": "0xuser", "amount_usd_estimate": amount,
         "raw_amount": "1", "from_known_exchange": "binance", "to_known_exchange": None,
+        "from_entity_type": "exchange", "to_entity_type": None,
         "observed_at": _now_iso(hours_ago),
     })
 
@@ -22,6 +23,7 @@ def _seed_inflow_event(db, *, amount, hours_ago=1):
         "tx_hash": f"0xin-{hours_ago}-{amount}", "log_index": 0, "block_number": 1, "token": "USDT",
         "from_address": "0xuser", "to_address": "0xexchange", "amount_usd_estimate": amount,
         "raw_amount": "1", "from_known_exchange": None, "to_known_exchange": "binance",
+        "from_entity_type": None, "to_entity_type": "exchange",
         "observed_at": _now_iso(hours_ago),
     })
 

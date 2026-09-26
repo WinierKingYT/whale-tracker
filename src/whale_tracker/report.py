@@ -12,15 +12,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from whale_tracker.flow import side_entity_type
+from whale_tracker.sources.onchain import ENTITY_DEX, ENTITY_FLAGGED, load_wallet_registry
+
 
 def _classify(event: dict[str, Any]) -> str:
-    from_tag = event.get("from_known_exchange") or ""
-    to_tag = event.get("to_known_exchange") or ""
-    if from_tag.startswith("⚠") or to_tag.startswith("⚠"):
+    registry = load_wallet_registry()
+    kinds = {side_entity_type(event, side, registry) for side in ("from", "to")}
+    if ENTITY_FLAGGED in kinds:
         return "flagged"
-    if from_tag.startswith("DEX:") or to_tag.startswith("DEX:"):
+    if ENTITY_DEX in kinds:
         return "dex"
-    if from_tag or to_tag:
+    if kinds - {None}:
         return "known"
     return "unknown"
 
@@ -51,6 +54,7 @@ def render_report(
     headlines: list[dict[str, Any]] | None = None,
     signal_candidates: list[dict[str, Any]] | None = None,
     closed_positions: list[dict[str, Any]] | None = None,
+    abstentions: dict[str, list[str]] | None = None,
 ) -> str:
     # `market_snapshot` (singular) stays as a BTCUSDT-only convenience for
     # single-symbol callers/tests; `market_snapshots` (plural, symbol ->
@@ -60,6 +64,12 @@ def render_report(
 
     lines = ["=== whale-tracker gözlemci raporu ===", ""]
 
+    abstaining = {symbol: reasons for symbol, reasons in (abstentions or {}).items() if reasons}
+    if abstaining:
+        lines.append("ABSTAIN (karar verilmedi -- aday, analiz, pozisyon, onay yok):")
+        for symbol, reasons in abstaining.items():
+            lines.append(f"  [{symbol}] {'; '.join(reasons)}")
+        lines.append("")
     signal_candidates = signal_candidates or []
     if signal_candidates:
         lines.append("Sinyal adayları (henüz işlem değil, öneri + gerekçe):")
@@ -86,7 +96,7 @@ def render_report(
                     )
                     lines.append(
                         f"      stop-loss=${proposal['stop_loss_price']:,.0f}, "
-                        f"maks. pozisyon=%{proposal['max_position_size_pct']*100:.0f}"
+                        f"hesap riski=%{proposal['max_position_size_pct']*100:.0f}"
                     )
                     lines.append(f"      en kötü senaryo: {proposal['worst_case_scenario']}")
                     for counter in proposal["counter_arguments"]:

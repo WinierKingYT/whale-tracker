@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from bisect import bisect_right
+from bisect import bisect_left
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 # One observer cycle's market and technical fetches land seconds apart;
 # the next cycle is 15 minutes later, so 5 minutes can't pair across cycles.
@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS onchain_events (
     raw_amount TEXT NOT NULL,
     from_known_exchange TEXT,
     to_known_exchange TEXT,
+    from_entity_type TEXT,
+    to_entity_type TEXT,
     observed_at TEXT NOT NULL,
     UNIQUE(tx_hash, log_index)
 );
@@ -165,6 +167,7 @@ CREATE TABLE IF NOT EXISTS approval_requests (
     position_size_usd REAL NOT NULL,
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    expires_at TEXT,
     decided_at TEXT,
     note TEXT
 );
@@ -194,6 +197,11 @@ class Storage:
         for table, column, ddl in (
             ("signal_candidates", "symbol", "ALTER TABLE signal_candidates ADD COLUMN symbol TEXT NOT NULL DEFAULT 'BTCUSDT'"),
             ("paper_positions", "symbol", "ALTER TABLE paper_positions ADD COLUMN symbol TEXT NOT NULL DEFAULT 'BTCUSDT'"),
+            # NULL on old rows: flow.py resolves those by address, fail-closed.
+            # NULL on old rows: approval.py treats a missing expiry as expired.
+            ("approval_requests", "expires_at", "ALTER TABLE approval_requests ADD COLUMN expires_at TEXT"),
+            ("onchain_events", "from_entity_type", "ALTER TABLE onchain_events ADD COLUMN from_entity_type TEXT"),
+            ("onchain_events", "to_entity_type", "ALTER TABLE onchain_events ADD COLUMN to_entity_type TEXT"),
         ):
             existing_columns = {row["name"] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             if column not in existing_columns:
@@ -203,7 +211,7 @@ class Storage:
     def close(self) -> None:
         self._conn.close()
 
-    def __enter__(self) -> Storage:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -217,11 +225,13 @@ class Storage:
                 """
                 INSERT INTO onchain_events
                     (tx_hash, log_index, block_number, token, from_address, to_address,
-                     amount_usd_estimate, raw_amount, from_known_exchange, to_known_exchange, observed_at)
+                     amount_usd_estimate, raw_amount, from_known_exchange, to_known_exchange,
+                     from_entity_type, to_entity_type, observed_at)
                 VALUES (:tx_hash, :log_index, :block_number, :token, :from_address, :to_address,
-                        :amount_usd_estimate, :raw_amount, :from_known_exchange, :to_known_exchange, :observed_at)
+                        :amount_usd_estimate, :raw_amount, :from_known_exchange, :to_known_exchange,
+                        :from_entity_type, :to_entity_type, :observed_at)
                 """,
-                event,
+                {"from_entity_type": None, "to_entity_type": None, **event},
             )
             self._conn.commit()
             return True
@@ -400,9 +410,9 @@ class Storage:
             """
             INSERT INTO approval_requests
                 (signal_candidate_id, symbol, entry_price, stop_loss_price, take_profit_price,
-                 position_size_usd, status, created_at)
+                 position_size_usd, status, created_at, expires_at)
             VALUES (:signal_candidate_id, :symbol, :entry_price, :stop_loss_price, :take_profit_price,
-                    :position_size_usd, :status, :created_at)
+                    :position_size_usd, :status, :created_at, :expires_at)
             """,
             payload,
         )
@@ -533,11 +543,15 @@ class Storage:
         replay random entries under the exact exit rules the strategy's
         own positions got.
 
-        Pairs each market snapshot with the latest technical snapshot up
-        to SAME_CYCLE_TOLERANCE after it, not by equal timestamps: the
-        simulator and backtest stamp both identically, but the live
-        observer fetches technicals a second or two after the market
-        snapshot, so an equality join matched 0 rows on real data."""
+        Same-cycle rule, explicit on both sides: a market snapshot at t
+        pairs with the EARLIEST technical snapshot in [t, t +
+        SAME_CYCLE_TOLERANCE] -- observe.py fetches market first, then
+        technical, a second or two later (equality joins matched 0 rows on
+        real data). A technical from BEFORE t is a previous cycle's (e.g.
+        this cycle's technical fetch failed) and is never used; each
+        technical pairs with at most one market snapshot. A market
+        snapshot with no same-cycle technical is dropped, not filled from
+        a neighbouring cycle."""
         markets = self._conn.execute(
             "SELECT observed_at, mark_price FROM market_snapshots WHERE symbol = ? ORDER BY observed_at", (symbol,),
         ).fetchall()
@@ -547,10 +561,16 @@ class Storage:
         ).fetchall()
         technical_times = [datetime.fromisoformat(row["observed_at"]) for row in technicals]
         history = []
+        used: set[int] = set()
         for market in markets:
-            limit = datetime.fromisoformat(market["observed_at"]) + SAME_CYCLE_TOLERANCE
-            index = bisect_right(technical_times, limit) - 1
-            if index >= 0:
+            market_time = datetime.fromisoformat(market["observed_at"])
+            index = bisect_left(technical_times, market_time)
+            if (
+                index < len(technicals)
+                and index not in used
+                and technical_times[index] - market_time <= SAME_CYCLE_TOLERANCE
+            ):
+                used.add(index)
                 history.append({
                     "observed_at": market["observed_at"], "mark_price": market["mark_price"],
                     "support": technicals[index]["support"], "resistance": technicals[index]["resistance"],

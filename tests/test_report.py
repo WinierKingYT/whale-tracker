@@ -12,9 +12,9 @@ def _event(**overrides):
 
 def test_report_groups_events_by_category():
     events = [
-        _event(to_known_exchange="⚠ FLAGGED: something bad"),
-        _event(to_known_exchange="binance"),
-        _event(from_known_exchange="DEX: Uniswap V4: Pool Manager"),
+        _event(to_known_exchange="⚠ FLAGGED: something bad", to_entity_type="flagged"),
+        _event(to_known_exchange="binance", to_entity_type="exchange"),
+        _event(from_known_exchange="DEX: Uniswap V4: Pool Manager", from_entity_type="dex"),
         _event(),  # unknown
     ]
     report = render_report(onchain_events=events, market_snapshot=None, sentiment_snapshot=None)

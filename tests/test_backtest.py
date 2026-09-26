@@ -14,6 +14,7 @@ from whale_tracker.backtest.replay import (
     HistoricalSentimentReplay,
     NoNewsReplay,
 )
+from whale_tracker.execution import net_return_pct
 from whale_tracker.simulate import run_cycle
 from whale_tracker.storage import Storage
 
@@ -95,7 +96,15 @@ def _event(minutes_after_day: int, *, amount: float = 5_000_000.0, to_exchange: 
         "block_timestamp": ts, "token": "USDT", "from_address": "0x" + "1" * 40, "to_address": "0x" + "2" * 40,
         "amount_usd_estimate": amount, "raw_amount": str(int(amount * 1e6)),
         "from_known_exchange": None, "to_known_exchange": to_exchange,
+        "from_entity_type": None, "to_entity_type": _type_of(to_exchange),
     }
+
+
+def _type_of(label: str | None) -> str | None:
+    """Fixture shorthand only -- production never derives type from a label."""
+    if label is None:
+        return None
+    return "dex" if label.startswith("DEX:") else "institution" if label.startswith("Abraxas") else "exchange"
 
 
 def test_onchain_replay_emits_each_event_once_at_its_block_time():
@@ -144,10 +153,13 @@ def _history_row(minutes: int, price: float, *, support: float = 95.0, resistanc
 def test_simulated_entry_follows_strategy_exit_rules():
     # stop = 95 * 0.98 = 93.1, target = 110 * 0.995 = 109.45
     winner = [_history_row(0, 100), _history_row(15, 105), _history_row(30, 110)]
-    assert baseline._simulate_entry(winner, 0) == pytest.approx((109.45 - 100) / 100)
+    # Net of the shared execution model (execution.py), same as paper trading.
+    assert baseline._simulate_entry(winner, 0) == pytest.approx(net_return_pct(100, "take_profit", 109.45, 110)[1])
 
     loser = [_history_row(0, 100), _history_row(15, 90)]
-    assert baseline._simulate_entry(loser, 0) == pytest.approx((93.1 - 100) / 100)
+    # Gapped through the stop to 90: filled at 90 (minus costs), not at 93.1.
+    assert baseline._simulate_entry(loser, 0) == pytest.approx(net_return_pct(100, "stopped_out", 93.1, 90)[1])
+    assert baseline._simulate_entry(loser, 0) < (90 - 100) / 100
 
     never_closes = [_history_row(0, 100), _history_row(15, 101)]
     assert baseline._simulate_entry(never_closes, 0) is None
@@ -159,7 +171,7 @@ def test_simulated_entry_follows_strategy_exit_rules():
 def test_replay_classes_drive_the_real_pipeline_end_to_end(tmp_path):
     """Interface check: simulate.run_cycle must run unchanged on replays."""
     markets = {"BTCUSDT": _market()}
-    onchain = HistoricalOnchainReplay([_event(-30, to_exchange=None) | {"from_known_exchange": "binance"}])
+    onchain = HistoricalOnchainReplay([_event(-30, to_exchange=None) | {"from_known_exchange": "binance", "from_entity_type": "exchange"}])
     sentiment = HistoricalSentimentReplay([{"timestamp": int(DAY.timestamp()), "value": 30.0, "label": "Fear"}])
     with Storage(tmp_path / "bt.db") as db:
         result = run_cycle(db, markets, onchain, sentiment, NoNewsReplay(), with_ai=False)
@@ -227,7 +239,8 @@ def _sawtooth(cycles: int) -> list[dict]:
 def test_circular_shift_baseline_preserves_entry_spacing():
     rows = _sawtooth(800)
     winners = [rows[i] for i in range(0, 400, 40)]  # all at i % 4 == 0
-    positions = [{"symbol": "BTCUSDT", "opened_at": r["observed_at"], "pnl_pct": (109.45 - 100) / 100} for r in winners]
+    positions = [{"symbol": "BTCUSDT", "opened_at": r["observed_at"], "pnl_pct": net_return_pct(100, "take_profit", 109.45, 110)[1]}
+                 for r in winners]
     result = baseline.random_entry_baseline(_HistoryStorage(rows), positions, trials=400, seed=1)
     assert result["method"] == "circular_shift"
     # One shared shift moves every entry into the same phase, so each
@@ -251,7 +264,8 @@ def test_rolling_net_inflow_matches_signal_py_window(tmp_path):
         _event(-30 * 60) | {"observed_at": (DAY - timedelta(hours=30)).isoformat()},  # outside 24h at t
         _event(0) | {"tx_hash": "0xa", "observed_at": (DAY - timedelta(hours=2)).isoformat()},
         _event(0, to_exchange="DEX: Uniswap") | {"tx_hash": "0xb", "observed_at": (DAY - timedelta(hours=1)).isoformat()},
-        _event(0, to_exchange=None) | {"tx_hash": "0xc", "from_known_exchange": "okx", "amount_usd_estimate": 2e6,
+        _event(0, to_exchange=None) | {"tx_hash": "0xc", "from_known_exchange": "okx", "from_entity_type": "exchange",
+                                       "amount_usd_estimate": 2e6,
                                        "observed_at": (DAY - timedelta(hours=1)).isoformat()},
     ]
     with Storage(tmp_path / "f.db") as db:
@@ -274,6 +288,7 @@ class _IcStorage:
 
 def test_information_coefficient_finds_a_signal_that_drives_returns():
     import random as _random
+
     from whale_tracker.backtest.signal_ic import information_coefficient
 
     rng = _random.Random(4)
@@ -283,7 +298,8 @@ def test_information_coefficient_finds_a_signal_that_drives_returns():
         for i in range(288):
             moment = DAY + timedelta(minutes=15 * (block * 288 + i))
             if i % 48 == 0:  # an exchange flow every 12h in the block's direction
-                tag = {"from_known_exchange": "binance", "to_known_exchange": None} if direction > 0 else {}
+                tag = ({"from_known_exchange": "binance", "to_known_exchange": None,
+                        "from_entity_type": "exchange", "to_entity_type": None} if direction > 0 else {})
                 events.append(_event(0) | tag | {"tx_hash": f"0x{block}-{i}", "observed_at": moment.isoformat()})
             price *= 1 + direction * 0.0002
             rows.append({"observed_at": moment.isoformat(), "mark_price": price, "support": 1, "resistance": 2})

@@ -11,7 +11,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from whale_tracker.simulation.regime import LatentRegime
-from whale_tracker.sources.onchain import TRACKED_TOKENS, _load_known_wallets
+from whale_tracker.sources.onchain import (
+    ENTITY_EXCHANGE,
+    TRACKED_TOKENS,
+    load_wallet_registry,
+    tag_event,
+)
 
 # Roughly matches amounts actually observed in this project's real data
 # this session ($1M-$100M+, most modest, occasional huge) -- a lognormal
@@ -42,12 +47,10 @@ class OnchainSimulator:
         -- an outflow from an exchange when the regime is positive
         (accumulation), an inflow when negative. Both default off."""
         self._rng = random.Random(seed)
-        self._known_wallets = _load_known_wallets()
-        self._known_addresses = list(self._known_wallets.keys())
+        self._registry = load_wallet_registry()
+        self._known_addresses = list(self._registry.keys())
         # Exactly the wallets signal.py's flow aggregation counts.
-        self._exchange_addresses = [
-            address for address, label in self._known_wallets.items() if not label.startswith(("DEX:", "⚠"))
-        ]
+        self._exchange_addresses = [a for a, (_, kind) in self._registry.items() if kind == ENTITY_EXCHANGE]
         self._events_per_cycle_mean = events_per_cycle_mean
         self._min_usd = min_usd
         self._regime = regime
@@ -73,7 +76,7 @@ class OnchainSimulator:
             to_addr = self._random_counterparty()
             if self._regime is not None and self._exchange_addresses:
                 from_addr, to_addr = self._apply_regime_tilt(from_addr, to_addr, observed_at)
-            events.append({
+            events.append(tag_event({
                 "tx_hash": f"0xsim{self._tx_counter:08d}",
                 "log_index": 0,
                 "block_number": self._block_number,
@@ -82,10 +85,8 @@ class OnchainSimulator:
                 "to_address": to_addr,
                 "amount_usd_estimate": round(amount, 2),
                 "raw_amount": str(int(amount * 10**6)),
-                "from_known_exchange": self._known_wallets.get(from_addr.lower()),
-                "to_known_exchange": self._known_wallets.get(to_addr.lower()),
                 "observed_at": observed_at,
-            })
+            }, self._registry))
         return events
 
     def _apply_regime_tilt(self, from_addr: str, to_addr: str, observed_at: str) -> tuple[str, str]:

@@ -28,28 +28,19 @@ import statistics
 from datetime import datetime, timedelta
 from typing import Any
 
+from whale_tracker.flow import exchange_flow_contribution
+from whale_tracker.sources.onchain import load_wallet_registry
+
 FLOW_WINDOW_HOURS = 24
-
-
-def _flow_contribution(event: dict[str, Any]) -> float:
-    """Same inclusion rule as signal._aggregate_exchange_flow: labeled
-    wallets count, DEX infrastructure and flagged addresses don't.
-    Positive = into exchanges."""
-    to_tag = event.get("to_known_exchange") or ""
-    from_tag = event.get("from_known_exchange") or ""
-    contribution = 0.0
-    if to_tag and not to_tag.startswith(("DEX:", "⚠")):
-        contribution += event["amount_usd_estimate"]
-    if from_tag and not from_tag.startswith(("DEX:", "⚠")):
-        contribution -= event["amount_usd_estimate"]
-    return contribution
 
 
 def rolling_net_inflow(events: list[dict[str, Any]], times: list[datetime], *, hours: int = FLOW_WINDOW_HOURS) -> list[float]:
     """Net inflow over (t - hours, t] at each time in `times` (sorted),
     in one pass -- the per-cycle equivalent of signal.py's window."""
+    registry = load_wallet_registry()
     flows = sorted(
-        (datetime.fromisoformat(e["observed_at"]), c) for e in events if (c := _flow_contribution(e))
+        (datetime.fromisoformat(e["observed_at"]), c)
+        for e in events if (c := exchange_flow_contribution(e, registry))
     )
     window = timedelta(hours=hours)
     result: list[float] = []

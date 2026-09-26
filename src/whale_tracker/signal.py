@@ -23,6 +23,10 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from whale_tracker.evidence import freshness_problems
+from whale_tracker.flow import exchange_sides
+from whale_tracker.sources.onchain import load_wallet_registry
+
 # Funding rate is per-8h on Binance. These bands are a first-pass estimate
 # from general market research (0.01%/8h cited as a commonly-referenced
 # "neutral" level), not calibrated against this project's own historical
@@ -89,8 +93,8 @@ def _aggregate_exchange_flow(storage: Any, *, hours: int, now: datetime | None =
     """Net stablecoin flow into/out of KNOWN exchange wallets over the
     window. Positive net_inflow_usd = more moved INTO exchanges (possible
     sell pressure); negative = net outflow (possible accumulation).
-    Deliberately excludes dex/flagged/unknown -- only wallets tagged with
-    a plain exchange name (not "DEX:"/"⚠ FLAGGED:") count toward this.
+    Only wallets whose entity type is "exchange" count (whale_tracker.flow):
+    institutions, DEX contracts, flagged and unknown addresses never do.
 
     `now` defaults to real wall-clock time (production's only real use
     case) but is an explicit parameter, not a hidden datetime.now() call,
@@ -102,16 +106,16 @@ def _aggregate_exchange_flow(storage: Any, *, hours: int, now: datetime | None =
     run_cycle comment)."""
     cutoff = ((now or datetime.now(UTC)) - timedelta(hours=hours)).isoformat()
     events = storage.recent_onchain_events(limit=5000)
+    registry = load_wallet_registry()
     inflow = 0.0
     outflow = 0.0
     for event in events:
         if event["observed_at"] < cutoff:
             continue
-        to_tag = event.get("to_known_exchange") or ""
-        from_tag = event.get("from_known_exchange") or ""
-        if to_tag and not to_tag.startswith(("DEX:", "⚠")):
+        into, out_of = exchange_sides(event, registry)
+        if into:
             inflow += event["amount_usd_estimate"]
-        if from_tag and not from_tag.startswith(("DEX:", "⚠")):
+        if out_of:
             outflow += event["amount_usd_estimate"]
     return {"inflow_usd": inflow, "outflow_usd": outflow, "net_inflow_usd": inflow - outflow}
 
@@ -175,6 +179,10 @@ def generate_candidates(
     that function's docstring for why it's an explicit parameter rather
     than an implicit datetime.now() call (production never passes it;
     simulate.py always does)."""
+    # Defense in depth: every caller (observe, simulate, backtest) gets the
+    # same ABSTAIN on stale evidence, not only the ones that remember to ask.
+    if freshness_problems(storage, symbol, now=now):
+        return []
     flow = _aggregate_exchange_flow(storage, hours=flow_window_hours, now=now)
     market = storage.latest_market_snapshot(symbol)
     sentiment = storage.latest_sentiment_snapshot("fear_greed")
